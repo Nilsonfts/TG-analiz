@@ -18,7 +18,7 @@ logger = get_logger("init_db")
 
 async def init_database():
     """Initialize database and create tables."""
-    logger.info("🗄️ Initializing database...")
+    logger.info("�️ Initializing database...")
     
     try:
         # Create database manager
@@ -37,7 +37,6 @@ async def init_database():
     except Exception as e:
         logger.error("❌ Failed to initialize database", error=str(e))
         return False
-
 
 def create_alembic_migration():
     """Create initial Alembic migration."""
@@ -91,3 +90,47 @@ async def main():
 if __name__ == "__main__":
     exit_code = asyncio.run(main())
     sys.exit(exit_code)
+        'API_HASH',
+        'DATABASE_URL'
+    ]
+    
+    missing_vars = []
+    for var in required_vars:
+        if not os.getenv(var):
+            missing_vars.append(var)
+    
+    if missing_vars:
+        print("❌ Отсутствуют обязательные переменные окружения:")
+        for var in missing_vars:
+            print(f"   - {var}")
+        print("\n📝 Создайте файл .env на основе .env.example и заполните все переменные")
+        return False
+    
+    print("✅ Все переменные окружения настроены")
+    return True
+
+async def main():
+    """Главная функция инициализации"""
+    print("🚀 Запуск инициализации Telegram Analytics Bot")
+    print("=" * 50)
+    
+    # Проверка переменных окружения
+    if not check_environment():
+        return
+    
+    # Инициализация базы данных
+    await init_database()
+    
+    # Добавление примеров групп
+    add_sample_groups()
+    
+    print("\n" + "=" * 50)
+    print("🎉 Инициализация завершена!")
+    print("\n📋 Следующие шаги:")
+    print("1. Обновите ID групп в базе данных на реальные")
+    print("2. Добавьте бот в группы, которые хотите мониторить")
+    print("3. Запустите бот командой: python main.py")
+    print("\n💡 Используйте команду /start в боте для начала работы")
+
+if __name__ == "__main__":
+    asyncio.run(main())
