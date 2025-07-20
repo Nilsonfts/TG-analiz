@@ -31,7 +31,7 @@ RUN pip install --upgrade pip wheel setuptools && \
 # Copy application files
 COPY . .
 
-# Expose port
+# Railway uses dynamic port assignment
 EXPOSE 8000
 
 # Command to run the application

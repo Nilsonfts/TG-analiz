@@ -1,53 +1,68 @@
 # 🛠️ Решение проблем Docker и Railway деплоя
 
-## ❌ Проблема: Docker build failed при установке зависимостей
+## ❌ Проблема: Docker user creation failed (exit code 9)
 
 ### Симптомы:
 ```
-✕ [5/7] RUN pip install --upgrade pip &&     pip install --no-cache-dir -r requirements.txt 
-process "/bin/sh -c pip install --upgrade pip &&     pip install --no-cache-dir -r requirements.txt" did not complete successfully: exit code: 1
+[9/9] RUN useradd --create-home --shell /bin/bash --user-group app && chown -R app:app /app
+process "/bin/sh -c useradd --create-home --shell /bin/bash --user-group app && chown -R app:app /app" did not complete successfully: exit code: 9
 ```
 
 ### 🔧 Решение:
 
-#### 1. Системные зависимости для matplotlib
-Обновленный `Dockerfile` включает все необходимые системные пакеты:
+Railway и многие облачные платформы не поддерживают создание пользователей в контейнерах. Создано 3 варианта Dockerfile:
 
+#### 1. Dockerfile (основной) - без user creation
 ```dockerfile
-# Install system dependencies for Python packages
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    curl \
-    pkg-config \
-    libfreetype6-dev \
-    libpng-dev \
-    libjpeg-dev \
-    libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Убрана проблемная секция:
+# RUN useradd --create-home --shell /bin/bash --user-group app
+# USER app
 ```
 
-#### 2. Стабильные версии пакетов
-Обновлен `requirements.txt` с проверенными совместимыми версиями:
-
-```
-aiogram==3.7.0
-aiohttp==3.9.5
-sqlalchemy==2.0.30
-matplotlib==3.8.4
-plotly==5.17.0
+#### 2. Dockerfile.railway - оптимизированный для Railway
+```dockerfile
+FROM python:3.11-slim
+# Все необходимые зависимости
+# Без health checks и user management
+CMD ["python", "main_v2.py"]
 ```
 
-#### 3. Минимальная версия без визуализации
-Если проблемы с matplotlib продолжаются, используйте `requirements.minimal`:
+#### 3. Dockerfile.minimal - минимальная версия
+```dockerfile
+FROM python:3.11-slim
+# Только gcc, g++
+# Использует requirements.minimal
+CMD ["python", "main_v2.py"]
+```
 
+## 🚀 Быстрые решения
+
+### Вариант 1: Использовать исправленный основной Dockerfile
 ```bash
-# Переименовать файлы
-mv requirements.txt requirements.full
-mv requirements.minimal requirements.txt
+# railway.json уже настроен на Dockerfile.railway
+git pull origin main
+# Railway автоматически пересоберет
+```
 
-# Пересобрать
-docker build -t telegram-analytics .
+### Вариант 2: Переключиться на минимальную версию
+```bash
+# Обновить railway.json
+{
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile.minimal"
+  }
+}
+```
+
+### Вариант 3: Использовать Nixpacks
+```bash
+# Обновить railway.json
+{
+  "build": {
+    "builder": "NIXPACKS"
+  }
+}
 ```
 
 ## 🚀 Варианты деплоя
