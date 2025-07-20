@@ -121,6 +121,13 @@ async def start_telegram_bot():
         try:
             logger.info("Подключение к базе данных...")
             logger.info(f"DATABASE_URL доступен: {bool(config.database_url)}")
+            if config.database_url:
+                logger.info(f"DATABASE_URL начинается с: {config.database_url[:20]}...")
+            else:
+                logger.error("DATABASE_URL не установлен!")
+                logger.error("Проверьте переменные окружения в Railway:")
+                logger.error("- DATABASE_PUBLIC_URL")
+                logger.error("- DATABASE_URL") 
             
             db = Database(config.database_url)
             await db.init_db()
@@ -393,8 +400,9 @@ async def start_telegram_bot():
 
         async def addgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """Добавление группы в систему мониторинга"""
-            if not db:
-                await update.message.reply_text("❌ База данных недоступна")
+            if not db or not db.pool:
+                await update.message.reply_text("❌ База данных недоступна. Проверьте подключение к PostgreSQL.")
+                logger.error("База данных не инициализирована при попытке добавить группу")
                 return
             
             user_id = update.effective_user.id
