@@ -31,23 +31,12 @@ class Database:
         self.database_url = database_url
         self.pool = None
     
-    def _check_pool(self):
-        """Проверка доступности пула подключений"""
-        if not self.pool:
-            raise RuntimeError("База данных не инициализирована или пул подключений недоступен")
-    
     async def init_db(self):
         """Инициализация базы данных"""
         try:
             logger.info(f"Попытка подключения к базе данных...")
             logger.info(f"DATABASE_URL начинается с: {self.database_url[:20]}...")
             
-            # Проверяем, что URL не None и не пустой
-            if not self.database_url:
-                raise ValueError("DATABASE_URL не установлен или пустой")
-            
-            logger.info("Создание пула подключений asyncpg...")
-            # Сначала создаем пул
             self.pool = await asyncpg.create_pool(
                 self.database_url,
                 min_size=1,
@@ -56,24 +45,11 @@ class Database:
             )
             
             logger.info("✅ Пул подключений создан успешно")
-            
-            # Затем создаем таблицы
-            logger.info("Создание таблиц...")
-            try:
-                await self.create_tables()
-                logger.info("✅ База данных успешно инициализирована")
-            except Exception as table_error:
-                logger.warning(f"⚠️  Ошибка создания таблиц: {table_error}")
-                logger.warning(f"⚠️  Тип ошибки таблиц: {type(table_error).__name__}")
-                # Пул остается рабочим, но таблицы могут быть не созданы
-                
+            await self.create_tables()
+            logger.info("✅ База данных успешно инициализирована")
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации базы данных: {e}")
-            logger.error(f"❌ Тип ошибки: {type(e).__name__}")
-            logger.error(f"❌ Подробности: {str(e)}")
-            if hasattr(e, '__traceback__'):
-                import traceback
-                logger.error(f"❌ Трассировка БД:\n{traceback.format_exc()}")
+            logger.error(f"Тип ошибки: {type(e).__name__}")
             raise
     
     async def create_tables(self):
@@ -178,10 +154,7 @@ class Database:
     async def get_active_groups(self) -> List[TelegramGroup]:
         """Получение активных групп"""
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch('''
-                SELECT group_id, username, title, description, members_count, is_active 
-                FROM telegram_groups WHERE is_active = TRUE
-            ''')
+            rows = await conn.fetch('SELECT * FROM telegram_groups WHERE is_active = TRUE')
             return [TelegramGroup(**dict(row)) for row in rows]
     
     async def save_messages(self, messages: List[Dict[str, Any]]):
@@ -264,32 +237,21 @@ class Database:
     
     async def save_user(self, user_id: int, username: str = None):
         """Сохранение пользователя в базе данных"""
-        try:
-            self._check_pool()
-            async with self.pool.acquire() as conn:
-                await conn.execute('''
-                    INSERT INTO telegram_users (user_id, username, first_seen)
-                    VALUES ($1, $2, CURRENT_TIMESTAMP)
-                    ON CONFLICT (user_id) 
-                    DO UPDATE SET 
-                        username = EXCLUDED.username,
-                        last_seen = CURRENT_TIMESTAMP
-                ''', user_id, username)
-                logger.info(f"Пользователь {user_id} ({username}) сохранен успешно")
-        except Exception as e:
-            logger.error(f"Ошибка сохранения пользователя {user_id}: {e}")
-            raise
+        async with self.pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO telegram_users (user_id, username, first_seen)
+                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET 
+                    username = EXCLUDED.username,
+                    last_seen = CURRENT_TIMESTAMP
+            ''', user_id, username)
     
     async def get_users_count(self) -> int:
         """Получение количества пользователей"""
-        try:
-            self._check_pool()
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval('SELECT COUNT(*) FROM telegram_users')
-                return result or 0
-        except Exception as e:
-            logger.error(f"Ошибка получения количества пользователей: {e}")
-            return 0
+        async with self.pool.acquire() as conn:
+            result = await conn.fetchval('SELECT COUNT(*) FROM telegram_users')
+            return result or 0
     
     async def get_recent_users(self, limit: int = 10) -> List[Dict]:
         """Получение последних пользователей"""
@@ -303,66 +265,130 @@ class Database:
             
             return [dict(row) for row in rows]
     
-    async def get_hourly_activity(self, group_id: int, days: int = 7) -> Dict[str, int]:
-        """Получение активности по часам за последние N дней"""
+    async def close(self):
+        """Закрытие соединений с базой данных"""
+        if self.pool:
+            await self.pool.close()
+
+    async def get_group_by_id(self, group_id: int) -> Optional[TelegramGroup]:
+        """Получение группы по ID"""
         try:
-            self._check_pool()
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow('''
+                    SELECT group_id, username, title, description, members_count, is_active 
+                    FROM telegram_groups 
+                    WHERE group_id = $1
+                ''', group_id)
+                
+                if row:
+                    return TelegramGroup(
+                        group_id=row['group_id'],
+                        username=row['username'],
+                        title=row['title'],
+                        description=row['description'],
+                        members_count=row['members_count'],
+                        is_active=row['is_active']
+                    )
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка получения группы по ID {group_id}: {e}")
+            return None
+
+    async def get_weekly_stats(self, group_id: int, start_date) -> Dict[str, Any]:
+        """Получение недельной статистики группы"""
+        try:
+            async with self.pool.acquire() as conn:
+                end_date = start_date + timedelta(days=7)
+                
+                # Общее количество сообщений за неделю
+                total_messages = await conn.fetchval('''
+                    SELECT COUNT(*) FROM messages 
+                    WHERE group_id = $1 AND date BETWEEN $2 AND $3
+                ''', group_id, start_date, end_date)
+                
+                # Количество активных пользователей
+                total_active_users = await conn.fetchval('''
+                    SELECT COUNT(DISTINCT user_id) FROM messages 
+                    WHERE group_id = $1 AND date BETWEEN $2 AND $3
+                ''', group_id, start_date, end_date)
+                
+                # Новые пользователи (те, кто впервые написал в группе в этот период)
+                new_users = await conn.fetchval('''
+                    SELECT COUNT(DISTINCT m.user_id) 
+                    FROM messages m
+                    WHERE m.group_id = $1 
+                    AND m.date BETWEEN $2 AND $3
+                    AND NOT EXISTS (
+                        SELECT 1 FROM messages m2 
+                        WHERE m2.group_id = $1 
+                        AND m2.user_id = m.user_id 
+                        AND m2.date < $2
+                    )
+                ''', group_id, start_date, end_date)
+                
+                return {
+                    'total_messages': total_messages or 0,
+                    'total_active_users': total_active_users or 0,
+                    'new_users': new_users or 0
+                }
+        except Exception as e:
+            logger.error(f"Ошибка получения недельной статистики: {e}")
+            return {}
+
+    async def get_top_users(self, group_id: int, days: int = 7) -> List[Dict[str, Any]]:
+        """Получение топ пользователей по активности"""
+        try:
             async with self.pool.acquire() as conn:
                 start_date = datetime.now() - timedelta(days=days)
                 
                 rows = await conn.fetch('''
-                    SELECT EXTRACT(HOUR FROM date) as hour, COUNT(*) as count
+                    SELECT 
+                        username, 
+                        COUNT(message_id) as message_count
+                    FROM messages
+                    WHERE group_id = $1 AND date >= $2 AND user_id IS NOT NULL
+                    GROUP BY user_id, username
+                    ORDER BY message_count DESC
+                    LIMIT 10
+                ''', group_id, start_date)
+                
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Ошибка получения топ пользователей: {e}")
+            return []
+
+    async def get_hourly_activity(self, group_id: int, days: int = 7) -> List[Dict[str, Any]]:
+        """Получение активности по часам"""
+        try:
+            async with self.pool.acquire() as conn:
+                start_date = datetime.now() - timedelta(days=days)
+                
+                rows = await conn.fetch('''
+                    SELECT 
+                        EXTRACT(HOUR FROM date) as hour,
+                        COUNT(*) as message_count
                     FROM messages 
                     WHERE group_id = $1 AND date >= $2
                     GROUP BY EXTRACT(HOUR FROM date)
                     ORDER BY hour
                 ''', group_id, start_date)
                 
-                # Создаем словарь с данными по часам
-                hourly_data = {}
-                for row in rows:
-                    hourly_data[str(int(row['hour']))] = row['count']
-                
-                return hourly_data
-        except Exception as e:
-            logger.error(f"Ошибка получения почасовой активности: {e}")
-            return {}
-    
-    async def get_weekly_trend(self, group_id: int, weeks: int = 4) -> List[Dict]:
-        """Получение тренда активности по неделям"""
-        try:
-            self._check_pool()
-            async with self.pool.acquire() as conn:
-                start_date = datetime.now() - timedelta(weeks=weeks)
-                
-                rows = await conn.fetch('''
-                    SELECT 
-                        DATE_TRUNC('week', date) as week,
-                        COUNT(*) as messages_count,
-                        COUNT(DISTINCT user_id) as users_count
-                    FROM messages 
-                    WHERE group_id = $1 AND date >= $2
-                    GROUP BY DATE_TRUNC('week', date)
-                    ORDER BY week
-                ''', group_id, start_date)
-                
                 return [dict(row) for row in rows]
         except Exception as e:
-            logger.error(f"Ошибка получения недельного тренда: {e}")
+            logger.error(f"Ошибка получения почасовой активности: {e}")
             return []
-    
-    async def get_daily_trend(self, group_id: int, days: int = 30) -> List[Dict]:
+
+    async def get_daily_trend(self, group_id: int, days: int = 30) -> List[Dict[str, Any]]:
         """Получение тренда активности по дням"""
         try:
-            self._check_pool()
             async with self.pool.acquire() as conn:
                 start_date = datetime.now() - timedelta(days=days)
                 
                 rows = await conn.fetch('''
                     SELECT 
                         DATE(date) as date,
-                        COUNT(*) as messages_count,
-                        COUNT(DISTINCT user_id) as users_count
+                        COUNT(*) as message_count,
+                        COUNT(DISTINCT user_id) as user_count
                     FROM messages 
                     WHERE group_id = $1 AND date >= $2
                     GROUP BY DATE(date)
@@ -373,29 +399,29 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка получения дневного тренда: {e}")
             return []
-    
+
     async def get_group_summary_stats(self, group_id: int) -> Dict[str, Any]:
         """Получение сводной статистики группы"""
         try:
-            self._check_pool()
             async with self.pool.acquire() as conn:
-                # Общая статистика
+                # Общее количество сообщений
                 total_messages = await conn.fetchval('''
                     SELECT COUNT(*) FROM messages WHERE group_id = $1
                 ''', group_id)
                 
+                # Общее количество пользователей
                 total_users = await conn.fetchval('''
                     SELECT COUNT(DISTINCT user_id) FROM messages 
                     WHERE group_id = $1 AND user_id IS NOT NULL
                 ''', group_id)
                 
-                # Самый активный пользователь
+                # Топ пользователь
                 top_user_row = await conn.fetchrow('''
-                    SELECT username, COUNT(*) as count
+                    SELECT username, COUNT(*) as msg_count 
                     FROM messages 
                     WHERE group_id = $1 AND user_id IS NOT NULL
                     GROUP BY user_id, username
-                    ORDER BY count DESC
+                    ORDER BY msg_count DESC
                     LIMIT 1
                 ''', group_id)
                 
@@ -426,8 +452,3 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка получения сводной статистики: {e}")
             return {}
-    
-    async def close(self):
-        """Закрытие соединений с базой данных"""
-        if self.pool:
-            await self.pool.close()

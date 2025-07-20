@@ -130,66 +130,11 @@ async def create_group_selection_keyboard(db, action_type: str):
         return None
 
 async def handle_group_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выбора группы из inline клавиатуры и графиков каналов"""
+    """Обработчик выбора группы из inline клавиатуры"""
     query = update.callback_query
     await query.answer()
     
     try:
-        # Проверяем, это запрос графика канала или выбор группы
-        if query.data.startswith("chart_"):
-            # Обработка запросов графиков каналов
-            chart_type = query.data.replace("chart_", "")
-            
-            channel_analytics = getattr(context.application, 'channel_analytics', None)
-            if not channel_analytics:
-                await query.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            try:
-                from channel_visualization import ChannelChartGenerator
-                chart_gen = ChannelChartGenerator(channel_analytics)
-                channel_id = -1001234567890  # Для демонстрации
-                
-                await query.edit_message_text("📊 Генерирую график...")
-                
-                chart_buf = None
-                caption = ""
-                
-                if chart_type == "growth":
-                    chart_buf = await chart_gen.generate_subscriber_growth_chart(channel_id, 30)
-                    caption = "📈 График роста подписчиков за 30 дней"
-                elif chart_type == "hourly":
-                    chart_buf = await chart_gen.generate_hourly_activity_chart(channel_id, 7)
-                    caption = "⏰ Почасовая активность аудитории за 7 дней"
-                elif chart_type == "traffic":
-                    chart_buf = await chart_gen.generate_traffic_sources_chart(channel_id, 30)
-                    caption = "🎯 Источники трафика за 30 дней"
-                elif chart_type == "engagement":
-                    chart_buf = await chart_gen.generate_engagement_trends_chart(channel_id, 30)
-                    caption = "📊 Тренды вовлеченности за 30 дней"
-                elif chart_type == "dashboard":
-                    chart_buf = await chart_gen.generate_dashboard_chart(channel_id)
-                    caption = "🎛 Комплексный дашборд канала"
-                
-                if chart_buf:
-                    await query.bot.send_photo(
-                        chat_id=query.message.chat_id,
-                        photo=chart_buf,
-                        caption=caption
-                    )
-                    await query.message.reply_text("✅ График успешно сгенерирован!")
-                else:
-                    await query.message.reply_text("❌ Не удалось сгенерировать график")
-                    
-            except ImportError:
-                await query.message.reply_text("❌ Модуль визуализации недоступен")
-            except Exception as e:
-                logger.error(f"Ошибка генерации графика {chart_type}: {e}")
-                await query.message.reply_text(f"❌ Ошибка генерации графика: {e}")
-            
-            return
-        
-        # Обработка выбора группы (старая логика)
         action, group_id = query.data.split(":", 1)
         group_id = int(group_id)
         
@@ -334,19 +279,8 @@ async def start_telegram_bot():
     
     try:
         from config import Config
-        import sys
-        import os
-        sys.path.append(os.path.dirname(__file__))
         from database import Database
-        from channel_analytics import ChannelAnalytics
-        from channel_reports import ChannelReportService
-        
-        # Попытка импорта сервиса отчетов
-        try:
-            from services.report_service import ReportService
-        except ImportError as e:
-            logger.warning(f"Не удалось импортировать ReportService: {e}")
-            ReportService = None
+        from services.report_service import ReportService
         
         logger.info("Инициализация Telegram бота...")
         
@@ -369,29 +303,12 @@ async def start_telegram_bot():
             db = None
 
         # Инициализация сервиса отчетов
-        reports = None
-        if ReportService:
-            try:
-                reports = ReportService()
-                logger.info("✅ Сервис отчетов инициализирован")
-            except Exception as e:
-                logger.error(f"❌ Ошибка инициализации сервиса отчетов: {e}")
-                reports = None
-        else:
-            logger.warning("⚠️ Сервис отчетов недоступен - используются базовые отчеты")
-
-        # Инициализация аналитики каналов
-        channel_analytics = None
-        channel_reports = None
-        if db:
-            try:
-                channel_analytics = ChannelAnalytics(db)
-                channel_reports = ChannelReportService(channel_analytics)
-                logger.info("✅ Аналитика каналов инициализирована")
-            except Exception as e:
-                logger.error(f"❌ Ошибка инициализации аналитики каналов: {e}")
-                channel_analytics = None
-                channel_reports = None
+        try:
+            reports = ReportService()
+            logger.info("✅ Сервис отчетов инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации сервиса отчетов: {e}")
+            reports = None
 
         # Создание приложения
         application = Application.builder().token(config.bot_token).build()
@@ -399,67 +316,52 @@ async def start_telegram_bot():
         # Сохраняем объекты в контексте приложения
         application.db = db
         application.reports = reports
-        application.channel_analytics = channel_analytics
-        application.channel_reports = channel_reports
 
         # === КОМАНДЫ БОТА ===
         
         async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id = update.effective_user.id
             await update.message.reply_text(
-                f"📊 Привет! Я бот аналитики Telegram каналов.\n\n"
+                f"🤖 Привет! Я бот аналитики Telegram групп.\n\n"
                 f"🆔 Ваш ID: {user_id}\n\n"
-                f"� Команды аналитики каналов:\n"
-                f"• /summary - 📊 Сводная статистика канала\n"
-                f"• /growth - 📈 Рост подписчиков\n"
-                f"• /engagement - ⚡ Вовлеченность аудитории\n"
-                f"• /traffic - 🎯 Источники трафика\n"
-                f"• /recommendations - 🤖 AI-рекомендации\n\n"
-                f"📊 Визуализация:\n"
-                f"• /charts - 📈 Графики и диаграммы\n"
-                f"• /export - 📁 Экспорт данных\n\n"
-                f"⚙️ Система:\n"
-                f"• /alerts - ⚠️ Проверка алертов\n"
-                f"• /status - 💡 Статус системы\n"
-                f"• /help - ❓ Подробная помощь\n\n"
-                f"✨ Все отчеты содержат красивое форматирование с эмодзи!"
+                f"📊 Основные команды:\n"
+                f"• /daily - Дневной отчет\n"
+                f"• /weekly - Недельный отчет\n"
+                f"• /charts - Графики активности\n"
+                f"• /dashboard - Сводная панель\n"
+                f"• /export - Экспорт данных\n"
+                f"• /status - Статус системы\n"
+                f"• /help - Помощь\n\n"
+                f"🎯 Все команды поддерживают выбор группы через интерактивные кнопки!"
             )
 
         async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             help_text = """
-🤖 <b>Telegram Analytics Bot - Аналитика каналов</b>
+🤖 <b>Telegram Analytics Bot - Помощь</b>
 
-� <b>Команды аналитики каналов:</b>
-• /summary - 📊 Сводная статистика канала
-• /growth - 📈 Рост и динамика подписчиков
-• /engagement - ⚡ Вовлеченность аудитории
-• /traffic - 🎯 Источники трафика и переходов
-• /recommendations - 🤖 AI-рекомендации по улучшению
-• /charts - 📊 Интерактивные графики и диаграммы
+📊 <b>Основные команды:</b>
+• /daily - Дневной отчет с выбором группы
+• /weekly - Недельный отчет с выбором группы
+• /charts - Графики активности с выбором группы
+• /trend - График динамики с выбором группы
+• /dashboard - Сводная панель с выбором группы
+• /export - Экспорт данных с выбором группы
 
 ⚙️ <b>Системные команды:</b>
-• /alerts - ⚠️ Проверка системных алертов
-• /status - 💡 Статус системы и подключений
-• /help - ❓ Эта подробная справка
+• /status - Статус системы и БД
+• /help - Эта справка
 
-� <b>Особенности отчетов:</b>
-• ✨ Красивое форматирование с эмодзи
-• 📊 Детальная аналитика с AI-рекомендациями
-• 📈 Интерактивные графики по запросу
-• �🎯 Анализ источников трафика
-• ⏰ Оптимальное время публикации
+🎯 <b>Как использовать:</b>
+1. Выберите команду (например, /daily)
+2. Бот покажет кнопки с доступными группами
+3. Нажмите на нужную группу
+4. Получите отчет для выбранной группы
 
-💡 <b>Как использовать:</b>
-1. Выберите команду аналитики (например, /summary)
-2. Получите красиво оформленный отчет с эмодзи
-3. Используйте /charts для визуальной аналитики
-4. Следуйте AI-рекомендациям для роста канала
-
-� <b>Для лучших результатов:</b>
-• Регулярно проверяйте /growth для отслеживания динамики
-• Анализируйте /engagement для оптимизации контента
-• Изучайте /traffic для понимания источников аудитории
-• Применяйте /recommendations для стратегического развития
+💡 <b>Особенности:</b>
+• Все отчеты генерируются для конкретных групп
+• Интерактивный выбор через inline-кнопки
+• Поддержка графиков и экспорта данных
+• Автоматические отчеты по расписанию
 """
             await update.message.reply_text(help_text, parse_mode='HTML')
 
@@ -613,171 +515,10 @@ async def start_telegram_bot():
                 reply_markup=keyboard
             )
 
-        # === КОМАНДЫ ДЛЯ АНАЛИТИКИ КАНАЛОВ ===
-        
-        async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Сводная статистика канала"""
-            if not channel_reports:
-                await update.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            # Для демонстрации используем фиксированный ID канала
-            # В реальном проекте здесь будет выбор канала
-            channel_id = -1001234567890  # Примерный ID канала
-            
-            try:
-                report = await channel_reports.generate_channel_summary_report(channel_id)
-                await update.message.reply_text(report, parse_mode='HTML')
-            except Exception as e:
-                logger.error(f"Ошибка генерации сводного отчета: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
-
-        async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Отчет роста подписчиков"""
-            if not channel_reports:
-                await update.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            channel_id = -1001234567890
-            
-            try:
-                report = await channel_reports.generate_growth_report(channel_id)
-                await update.message.reply_text(report, parse_mode='HTML')
-            except Exception as e:
-                logger.error(f"Ошибка генерации отчета роста: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
-
-        async def engagement_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Отчет вовлеченности аудитории"""
-            if not channel_reports:
-                await update.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            channel_id = -1001234567890
-            
-            try:
-                report = await channel_reports.generate_engagement_report(channel_id)
-                await update.message.reply_text(report, parse_mode='HTML')
-            except Exception as e:
-                logger.error(f"Ошибка генерации отчета вовлеченности: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
-
-        async def traffic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Отчет источников трафика"""
-            if not channel_reports:
-                await update.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            channel_id = -1001234567890
-            
-            try:
-                report = await channel_reports.generate_traffic_report(channel_id)
-                await update.message.reply_text(report, parse_mode='HTML')
-            except Exception as e:
-                logger.error(f"Ошибка генерации отчета трафика: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
-
-        async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """AI-рекомендации для канала"""
-            if not channel_reports:
-                await update.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            channel_id = -1001234567890
-            
-            try:
-                report = await channel_reports.generate_recommendations_report(channel_id)
-                await update.message.reply_text(report, parse_mode='HTML')
-            except Exception as e:
-                logger.error(f"Ошибка генерации AI-рекомендаций: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
-
-        async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Проверка алертов"""
-            user_id = update.effective_user.id
-            
-            if user_id not in config.admin_users:
-                await update.message.reply_text("❌ Только администраторы могут проверять алерты!")
-                return
-            
-            try:
-                if AlertSystem:
-                    alert_system = AlertSystem(db)
-                    alerts = await alert_system.check_all_alerts()
-                    if alerts:
-                        alert_text = "⚠️ <b>АКТИВНЫЕ АЛЕРТЫ:</b>\n\n"
-                        for alert in alerts:
-                            alert_text += f"• {alert}\n"
-                        await update.message.reply_text(alert_text, parse_mode='HTML')
-                    else:
-                        await update.message.reply_text("✅ Все системы работают нормально!")
-                else:
-                    await update.message.reply_text("❌ Система алертов недоступна")
-            except Exception as e:
-                logger.error(f"Ошибка проверки алертов: {e}")
-                await update.message.reply_text(f"❌ Ошибка проверки алертов: {e}")
-
-        async def channel_charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Генерация графиков для канала"""
-            if not channel_analytics:
-                await update.message.reply_text("❌ Сервис аналитики каналов недоступен")
-                return
-            
-            try:
-                from channel_visualization import ChannelChartGenerator
-                chart_gen = ChannelChartGenerator(channel_analytics)
-                
-                channel_id = -1001234567890  # Для демонстрации
-                
-                await update.message.reply_text("📊 Генерирую графики канала...")
-                
-                # Создаем клавиатуру выбора типа графика
-                keyboard = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("📈 Рост подписчиков", callback_data="chart_growth"),
-                        InlineKeyboardButton("⏰ Активность по часам", callback_data="chart_hourly")
-                    ],
-                    [
-                        InlineKeyboardButton("🎯 Источники трафика", callback_data="chart_traffic"),
-                        InlineKeyboardButton("📊 Тренды вовлеченности", callback_data="chart_engagement")
-                    ],
-                    [
-                        InlineKeyboardButton("🎛 Полный дашборд", callback_data="chart_dashboard")
-                    ]
-                ])
-                
-                await update.message.reply_text(
-                    "📈 <b>Выберите тип графика:</b>\n\n"
-                    "• 📈 Рост подписчиков - динамика за последние 30 дней\n"
-                    "• ⏰ Активность по часам - оптимальное время публикации\n"
-                    "• 🎯 Источники трафика - откуда приходят подписчики\n"
-                    "• 📊 Тренды вовлеченности - анализ реакций аудитории\n"
-                    "• 🎛 Полный дашборд - комплексная аналитика",
-                    reply_markup=keyboard,
-                    parse_mode='HTML'
-                )
-                
-            except ImportError:
-                await update.message.reply_text("❌ Модуль визуализации недоступен")
-            except Exception as e:
-                logger.error(f"Ошибка команды графиков: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации графиков: {e}")
-
         # Регистрация обработчиков команд
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("status", status_command))
-        
-        # Команды аналитики каналов
-        application.add_handler(CommandHandler("summary", summary_command))
-        application.add_handler(CommandHandler("growth", growth_command))
-        application.add_handler(CommandHandler("engagement", engagement_command))
-        application.add_handler(CommandHandler("traffic", traffic_command))
-        application.add_handler(CommandHandler("recommendations", recommendations_command))
-        application.add_handler(CommandHandler("alerts", alerts_command))
-        application.add_handler(CommandHandler("charts", channel_charts_command))
-        
-        # Старые команды (оставляем для совместимости)
         application.add_handler(CommandHandler("daily", daily_report_command))
         application.add_handler(CommandHandler("weekly", weekly_report_command))
         application.add_handler(CommandHandler("charts", charts_command))
