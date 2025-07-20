@@ -300,6 +300,130 @@ class Database:
             
             return [dict(row) for row in rows]
     
+    async def get_hourly_activity(self, group_id: int, days: int = 7) -> Dict[str, int]:
+        """Получение активности по часам за последние N дней"""
+        try:
+            self._check_pool()
+            async with self.pool.acquire() as conn:
+                start_date = datetime.now() - timedelta(days=days)
+                
+                rows = await conn.fetch('''
+                    SELECT EXTRACT(HOUR FROM date) as hour, COUNT(*) as count
+                    FROM messages 
+                    WHERE group_id = $1 AND date >= $2
+                    GROUP BY EXTRACT(HOUR FROM date)
+                    ORDER BY hour
+                ''', group_id, start_date)
+                
+                # Создаем словарь с данными по часам
+                hourly_data = {}
+                for row in rows:
+                    hourly_data[str(int(row['hour']))] = row['count']
+                
+                return hourly_data
+        except Exception as e:
+            logger.error(f"Ошибка получения почасовой активности: {e}")
+            return {}
+    
+    async def get_weekly_trend(self, group_id: int, weeks: int = 4) -> List[Dict]:
+        """Получение тренда активности по неделям"""
+        try:
+            self._check_pool()
+            async with self.pool.acquire() as conn:
+                start_date = datetime.now() - timedelta(weeks=weeks)
+                
+                rows = await conn.fetch('''
+                    SELECT 
+                        DATE_TRUNC('week', date) as week,
+                        COUNT(*) as messages_count,
+                        COUNT(DISTINCT user_id) as users_count
+                    FROM messages 
+                    WHERE group_id = $1 AND date >= $2
+                    GROUP BY DATE_TRUNC('week', date)
+                    ORDER BY week
+                ''', group_id, start_date)
+                
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Ошибка получения недельного тренда: {e}")
+            return []
+    
+    async def get_daily_trend(self, group_id: int, days: int = 30) -> List[Dict]:
+        """Получение тренда активности по дням"""
+        try:
+            self._check_pool()
+            async with self.pool.acquire() as conn:
+                start_date = datetime.now() - timedelta(days=days)
+                
+                rows = await conn.fetch('''
+                    SELECT 
+                        DATE(date) as date,
+                        COUNT(*) as messages_count,
+                        COUNT(DISTINCT user_id) as users_count
+                    FROM messages 
+                    WHERE group_id = $1 AND date >= $2
+                    GROUP BY DATE(date)
+                    ORDER BY date
+                ''', group_id, start_date)
+                
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Ошибка получения дневного тренда: {e}")
+            return []
+    
+    async def get_group_summary_stats(self, group_id: int) -> Dict[str, Any]:
+        """Получение сводной статистики группы"""
+        try:
+            self._check_pool()
+            async with self.pool.acquire() as conn:
+                # Общая статистика
+                total_messages = await conn.fetchval('''
+                    SELECT COUNT(*) FROM messages WHERE group_id = $1
+                ''', group_id)
+                
+                total_users = await conn.fetchval('''
+                    SELECT COUNT(DISTINCT user_id) FROM messages 
+                    WHERE group_id = $1 AND user_id IS NOT NULL
+                ''', group_id)
+                
+                # Самый активный пользователь
+                top_user_row = await conn.fetchrow('''
+                    SELECT username, COUNT(*) as count
+                    FROM messages 
+                    WHERE group_id = $1 AND user_id IS NOT NULL
+                    GROUP BY user_id, username
+                    ORDER BY count DESC
+                    LIMIT 1
+                ''', group_id)
+                
+                # Статистика за последние 30 дней
+                thirty_days_ago = datetime.now() - timedelta(days=30)
+                recent_messages = await conn.fetchval('''
+                    SELECT COUNT(*) FROM messages 
+                    WHERE group_id = $1 AND date >= $2
+                ''', group_id, thirty_days_ago)
+                
+                # Среднее сообщений в день (за последние 30 дней)
+                avg_daily = recent_messages / 30 if recent_messages else 0
+                
+                # Информация о группе
+                group_info = await conn.fetchrow('''
+                    SELECT title, members_count FROM telegram_groups WHERE group_id = $1
+                ''', group_id)
+                
+                return {
+                    'total_messages': total_messages or 0,
+                    'total_users': total_users or 0,
+                    'top_user': top_user_row['username'] if top_user_row else 'N/A',
+                    'avg_daily': avg_daily,
+                    'group_name': group_info['title'] if group_info else 'Unknown',
+                    'members_count': group_info['members_count'] if group_info else 0,
+                    'period': '30 дней'
+                }
+        except Exception as e:
+            logger.error(f"Ошибка получения сводной статистики: {e}")
+            return {}
+    
     async def close(self):
         """Закрытие соединений с базой данных"""
         if self.pool:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram Analytics Bot - Шаг 4: ФИНАЛ - Полный функционал с планировщиком
+Telegram Analytics Bot - Полный функционал с графиками и визуализацией
 """
 import os
 import http.server
@@ -10,10 +10,14 @@ import threading
 import asyncio
 import time
 import schedule
+from datetime import datetime, timedelta
 
 # Telegram Bot API
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+
+# Наши модули
+from visualization import ChartGenerator
 
 # Настройка логирования
 logging.basicConfig(
@@ -182,34 +186,71 @@ async def start_telegram_bot():
                     logger.warning(f"Не удалось сохранить пользователя: {e}")
             
             welcome_text = f"""
-🚀 **Добро пожаловать в Telegram Analytics Bot!**
+🚀 **Telegram Analytics Bot с графиками!**
 
 Привет, {username}! 
 
-📊 Доступные команды:
-/help - показать эту помощь
-/status - статус бота
-/ping - проверка связи
-/users - количество пользователей (если БД работает)
-/daily - дневной отчет
-/weekly - недельный отчет
-/demo - демо отчет с тестовыми данными
-/subscribe daily|weekly - подписаться на автоматические отчеты
-/unsubscribe daily|weekly - отписаться от отчетов
+📊 **Новые возможности:**
+• /charts - 📈 графики активности 
+• /trend - 📊 динамика за месяц
+• /dashboard - 🎯 сводная панель
 
-🔧 Статус: **ПОЛНЫЙ ФУНКЦИОНАЛ** (Шаг 4/4)
+**📋 Основные команды:**
+• /help - справка по всем командам
+• /status - статус системы
+• /daily - дневной отчёт
+• /weekly - недельный отчёт
+
+**🔔 Подписки:**
+• /subscribe daily - автоматические дневные отчёты
+• /subscribe weekly - автоматические недельные отчёты
+
+🎨 **Статус: ГРАФИКИ И ВИЗУАЛИЗАЦИЯ**
 ✅ HTTP сервер работает
 ✅ Telegram бот подключен
 {'✅ База данных подключена' if db else '⚠️  База данных недоступна'}
-{'✅ Отчеты доступны' if reports else '⚠️  Отчеты недоступны'}
+{'✅ Отчеты и графики доступны' if reports else '⚠️  Отчеты недоступны'}
 {'✅ Планировщик запущен' if scheduler_running else '⏳ Планировщик настраивается'}
+
+Используйте /help для полного списка команд!
             """
             
             await update.message.reply_text(welcome_text, parse_mode='Markdown')
             logger.info(f"Команда /start от пользователя {user_id} ({username})")
 
         async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            await start_command(update, context)
+            help_text = """
+🤖 **Telegram Analytics Bot - Справка**
+
+**📊 Основные команды:**
+• /status - статус системы
+• /users - статистика пользователей  
+• /daily - дневной отчёт
+• /weekly - недельный отчёт
+• /demo - демо отчёт
+
+**📈 Графики и аналитика:**
+• /charts - графики активности по часам и топ пользователи
+• /trend - график динамики за 30 дней
+• /dashboard - сводная аналитическая панель
+
+**🔔 Подписки:**
+• /subscribe [daily|weekly] - подписаться на автоотчёты
+• /unsubscribe [daily|weekly] - отписаться
+
+**👑 Админские команды:**
+• /groupinfo - информация о группе
+• /addgroup [ID] - добавить группу в мониторинг
+• /debug - диагностика системы
+• /testdb - тест базы данных
+
+**ℹ️ Автоматические отчёты:**
+📅 Дневные: каждый день в 09:00
+📅 Недельные: каждый понедельник в 09:00
+
+Добавьте бота в группу как администратора для начала мониторинга!
+            """
+            await update.message.reply_text(help_text, parse_mode='Markdown')
 
         async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Проверяем статус БД
@@ -600,6 +641,170 @@ async def start_telegram_bot():
             
             await update.message.reply_text(test_info)
 
+        # === НОВЫЕ КОМАНДЫ С ГРАФИКАМИ ===
+        
+        async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Команда для получения графиков активности"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            await update.message.reply_text("📊 Генерирую графики активности...")
+            
+            try:
+                # Получаем активные группы
+                groups = await db.get_active_groups()
+                if not groups:
+                    await update.message.reply_text("❌ Нет активных групп для анализа")
+                    return
+                
+                group = groups[0]  # Берём первую группу
+                chart_gen = ChartGenerator()
+                
+                # Получаем данные для графиков
+                hourly_data = await db.get_hourly_activity(group.group_id, days=7)
+                top_users_data = await db.get_daily_stats(group.group_id, datetime.now())
+                
+                # Создаём график активности по часам
+                if hourly_data:
+                    chart_buf = chart_gen.create_activity_chart(
+                        hourly_data, 
+                        f"Активность в группе '{group.title}' (7 дней)"
+                    )
+                    
+                    if chart_buf:
+                        await update.message.reply_photo(
+                            photo=chart_buf,
+                            caption=f"📊 График активности по часам\n🏷️ Группа: {group.title}\n📅 Период: 7 дней"
+                        )
+                
+                # Создаём график топ пользователей
+                if top_users_data and top_users_data['top_users']:
+                    chart_buf = chart_gen.create_top_users_chart(
+                        top_users_data['top_users'],
+                        f"Топ пользователей группы '{group.title}'"
+                    )
+                    
+                    if chart_buf:
+                        await update.message.reply_photo(
+                            photo=chart_buf,
+                            caption=f"🏆 Топ активных пользователей\n🏷️ Группа: {group.title}"
+                        )
+                
+            except Exception as e:
+                logger.error(f"Ошибка генерации графиков: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации графиков: {e}")
+
+        async def trend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Команда для получения графика динамики"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            await update.message.reply_text("📈 Генерирую график динамики...")
+            
+            try:
+                # Получаем активные группы
+                groups = await db.get_active_groups()
+                if not groups:
+                    await update.message.reply_text("❌ Нет активных групп для анализа")
+                    return
+                
+                group = groups[0]  # Берём первую группу
+                chart_gen = ChartGenerator()
+                
+                # Получаем данные динамики за 30 дней
+                daily_trend = await db.get_daily_trend(group.group_id, days=30)
+                
+                if daily_trend and len(daily_trend) > 1:
+                    chart_buf = chart_gen.create_daily_trend_chart(
+                        daily_trend,
+                        f"Динамика активности в группе '{group.title}'"
+                    )
+                    
+                    if chart_buf:
+                        await update.message.reply_photo(
+                            photo=chart_buf,
+                            caption=f"📈 Динамика активности за 30 дней\n🏷️ Группа: {group.title}\n📊 Данных: {len(daily_trend)} дней"
+                        )
+                else:
+                    await update.message.reply_text("❌ Недостаточно данных для построения графика динамики (нужно минимум 2 дня)")
+                
+            except Exception as e:
+                logger.error(f"Ошибка генерации графика динамики: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации графика: {e}")
+
+        async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Команда для получения сводного дашборда"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            await update.message.reply_text("📊 Генерирую сводный дашборд...")
+            
+            try:
+                # Получаем активные группы
+                groups = await db.get_active_groups()
+                if not groups:
+                    await update.message.reply_text("❌ Нет активных групп для анализа")
+                    return
+                
+                group = groups[0]  # Берём первую группу
+                chart_gen = ChartGenerator()
+                
+                # Собираем все данные для дашборда
+                summary_stats = await db.get_group_summary_stats(group.group_id)
+                hourly_activity = await db.get_hourly_activity(group.group_id, days=7)
+                top_users_data = await db.get_daily_stats(group.group_id, datetime.now())
+                daily_trend = await db.get_daily_trend(group.group_id, days=14)
+                
+                # Объединяем данные
+                dashboard_data = {
+                    **summary_stats,
+                    'hourly_activity': hourly_activity,
+                    'top_users': top_users_data.get('top_users', []) if top_users_data else [],
+                    'daily_trend': daily_trend
+                }
+                
+                # Создаём дашборд
+                chart_buf = chart_gen.create_summary_dashboard(
+                    dashboard_data,
+                    f"📊 Аналитическая панель - {group.title}"
+                )
+                
+                if chart_buf:
+                    await update.message.reply_photo(
+                        photo=chart_buf,
+                        caption=f"📊 Сводная аналитическая панель\n🏷️ Группа: {group.title}\n📈 Всего сообщений: {dashboard_data.get('total_messages', 0)}\n👥 Всего пользователей: {dashboard_data.get('total_users', 0)}"
+                    )
+                else:
+                    await update.message.reply_text("❌ Ошибка создания дашборда")
+                
+            except Exception as e:
+                logger.error(f"Ошибка генерации дашборда: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации дашборда: {e}")
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -615,6 +820,11 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("addgroup", addgroup_command))
         app.add_handler(CommandHandler("debug", debug_command))
         app.add_handler(CommandHandler("testdb", testdb_command))
+        
+        # Новые команды с графиками
+        app.add_handler(CommandHandler("charts", charts_command))
+        app.add_handler(CommandHandler("trend", trend_command))
+        app.add_handler(CommandHandler("dashboard", dashboard_command))
         
         # Обработчик сообщений в группах
         async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
