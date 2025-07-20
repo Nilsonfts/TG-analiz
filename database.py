@@ -34,11 +34,22 @@ class Database:
     async def init_db(self):
         """Инициализация базы данных"""
         try:
-            self.pool = await asyncpg.create_pool(self.database_url)
+            logger.info(f"Попытка подключения к базе данных...")
+            logger.info(f"DATABASE_URL начинается с: {self.database_url[:20]}...")
+            
+            self.pool = await asyncpg.create_pool(
+                self.database_url,
+                min_size=1,
+                max_size=10,
+                command_timeout=60
+            )
+            
+            logger.info("✅ Пул подключений создан успешно")
             await self.create_tables()
-            logger.info("База данных успешно инициализирована")
+            logger.info("✅ База данных успешно инициализирована")
         except Exception as e:
-            logger.error(f"Ошибка инициализации базы данных: {e}")
+            logger.error(f"❌ Ошибка инициализации базы данных: {e}")
+            logger.error(f"Тип ошибки: {type(e).__name__}")
             raise
     
     async def create_tables(self):

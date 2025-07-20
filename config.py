@@ -21,6 +21,10 @@ class Config:
         # База данных (опционально для начала)
         self.database_url = os.getenv('DATABASE_URL', 'postgresql://localhost/tg_analytics')
         
+        # Railway фикс: заменяем postgres:// на postgresql://
+        if self.database_url and self.database_url.startswith('postgres://'):
+            self.database_url = self.database_url.replace('postgres://', 'postgresql://', 1)
+        
         # Администраторы
         admin_users_str = os.getenv('ADMIN_USERS', '')
         self.admin_users = [int(x.strip()) for x in admin_users_str.split(',') if x.strip().isdigit()]

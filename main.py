@@ -119,12 +119,15 @@ async def start_telegram_bot():
         scheduler_running = False
         try:
             logger.info("Подключение к базе данных...")
+            logger.info(f"DATABASE_URL доступен: {bool(config.database_url)}")
+            
             db = Database(config.database_url)
             await db.init_db()
             reports = ReportGenerator(db)
             logger.info("✅ База данных подключена и инициализирована")
         except Exception as e:
             logger.warning(f"⚠️  База данных недоступна: {e}")
+            logger.warning(f"Тип ошибки: {type(e).__name__}")
             logger.info("Продолжаю без базы данных")
         
         # Создание приложения бота
