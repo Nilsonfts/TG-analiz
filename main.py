@@ -113,6 +113,17 @@ async def start_telegram_bot():
             while True:
                 await asyncio.sleep(60)
             return
+
+        # Принудительно выводим информацию о DATABASE_URL
+        logger.info("=" * 50)
+        logger.info("ДИАГНОСТИКА БАЗЫ ДАННЫХ:")
+        logger.info(f"DATABASE_URL присутствует: {bool(config.database_url)}")
+        if config.database_url:
+            logger.info(f"DATABASE_URL (первые 50 символов): {config.database_url[:50]}...")
+            logger.info(f"DATABASE_URL (последние 20 символов): ...{config.database_url[-20:]}")
+        else:
+            logger.error("DATABASE_URL полностью отсутствует!")
+        logger.info("=" * 50)
         
         # Инициализация базы данных
         db = None
@@ -477,6 +488,37 @@ async def start_telegram_bot():
             except Exception as e:
                 await update.message.reply_text(f"❌ Ошибка добавления группы: {e}")
 
+        async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Отладочная информация для диагностики проблем"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            debug_info = f"""
+🔍 **Отладочная информация**
+
+**Конфигурация:**
+• BOT_TOKEN: {'✅ Установлен' if config.bot_token else '❌ Не найден'}
+• DATABASE_URL: {'✅ Установлен' if config.database_url else '❌ Не найден'}
+• ADMIN_USERS: {config.admin_users}
+
+**База данных:**
+• Объект db: {'✅ Создан' if db else '❌ Не создан'}
+• Пул подключений: {'✅ Активен' if db and db.pool else '❌ Неактивен'}
+
+**Системы:**
+• Отчеты: {'✅ Работают' if reports else '❌ Недоступны'}
+• Планировщик: {'✅ Запущен' if scheduler_running else '❌ Остановлен'}
+
+**Переменные окружения (первые символы):**
+• DATABASE_URL: {config.database_url[:30] + '...' if config.database_url else 'Не установлен'}
+            """
+            
+            await update.message.reply_text(debug_info, parse_mode='Markdown')
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -490,6 +532,7 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("unsubscribe", unsubscribe_command))
         app.add_handler(CommandHandler("groupinfo", groupinfo_command))
         app.add_handler(CommandHandler("addgroup", addgroup_command))
+        app.add_handler(CommandHandler("debug", debug_command))
         
         # Обработчик сообщений в группах
         async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
