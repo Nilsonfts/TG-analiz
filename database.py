@@ -178,7 +178,10 @@ class Database:
     async def get_active_groups(self) -> List[TelegramGroup]:
         """Получение активных групп"""
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch('SELECT * FROM telegram_groups WHERE is_active = TRUE')
+            rows = await conn.fetch('''
+                SELECT group_id, username, title, description, members_count, is_active 
+                FROM telegram_groups WHERE is_active = TRUE
+            ''')
             return [TelegramGroup(**dict(row)) for row in rows]
     
     async def save_messages(self, messages: List[Dict[str, Any]]):
