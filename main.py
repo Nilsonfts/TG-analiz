@@ -5,6 +5,7 @@ Railway Telegram Bot with HTTP healthcheck and real channel support.
 A comprehensive Telegram bot for channel analytics with Railway deployment support.
 """
 import asyncio
+import json
 import logging
 import os
 import threading
@@ -116,18 +117,22 @@ class HealthHandler(BaseHTTPRequestHandler):
                 },
             }
 
-        self.wfile.write(str(response).encode())
+        self.wfile.write(json.dumps(response).encode())
 
 
 def start_http_server() -> None:
     """Start HTTP server for Railway health checks."""
     try:
         port = PORT
+        logger.info(f"🌐 Starting HTTP server on 0.0.0.0:{port}")
         server = HTTPServer(("0.0.0.0", port), HealthHandler)
-        logger.info(f"🌐 HTTP server started on port {port}")
+        logger.info(f"✅ HTTP server started successfully on port {port}")
+        logger.info(f"📊 Health check available at: http://0.0.0.0:{port}/health")
         server.serve_forever()
     except Exception as e:
         logger.error(f"❌ HTTP server error: {e}")
+        logger.error(f"🔍 Port {PORT} may be in use or blocked")
+        raise
 
 # Команды бота
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -303,30 +308,36 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚀 Railway деплой работает!"
     )
 
-async def main():
-    """Основная функция"""
-    if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден в переменных окружения!")
-        logger.info("💡 Добавьте BOT_TOKEN в Railway Variables")
-        # Запускаем только HTTP сервер
-        start_http_server()
-        return
+async def main() -> None:
+    """Main application function."""
+    logger.info("🚀 Starting TG-analiz bot on Railway...")
+    logger.info(f"🔧 Port: {PORT}")
+    logger.info(f"🤖 Bot token: {'✅ Set' if BOT_TOKEN else '❌ Missing'}")
+    logger.info(f"� Channel: {CHANNEL_ID or 'Not configured'}")
     
-    logger.info("🚀 Запуск Telegram Bot на Railway...")
-    logger.info(f"🤖 Токен: {BOT_TOKEN[:10]}...")
-    logger.info(f"📊 Канал: {CHANNEL_ID or 'не настроен'}")
-    
-    # Инициализируем Telethon для работы с каналом
-    await init_telethon()
-    
-    # Запускаем HTTP сервер в отдельном потоке
+    # Always start HTTP server first for health checks
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
+    logger.info("🌐 HTTP health check server started")
     
-    # Создаем приложение Telegram бота
+    if not BOT_TOKEN:
+        logger.error("❌ BOT_TOKEN not found in environment variables!")
+        logger.info("💡 Add BOT_TOKEN in Railway Variables")
+        logger.info("🏥 Health check server running on /health")
+        # Keep the process alive for health checks
+        try:
+            await asyncio.sleep(float('inf'))
+        except KeyboardInterrupt:
+            logger.info("👋 Graceful shutdown")
+        return
+    
+    # Initialize Telethon for channel work
+    await init_telethon()
+    
+    # Create Telegram bot application
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Добавляем обработчики команд
+    # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("summary", summary_command))
     application.add_handler(CommandHandler("growth", growth_command))
@@ -334,16 +345,17 @@ async def main():
     application.add_handler(CommandHandler("channel_info", channel_info_command))
     application.add_handler(CommandHandler("help", help_command))
     
-    # Обработчик нажатий кнопок
+    # Add callback query handler
     application.add_handler(CallbackQueryHandler(handle_chart_callback, pattern="^chart_"))
     
-    # Обработчик неизвестных команд
+    # Add unknown command handler
     from telegram.ext import MessageHandler, filters
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     
-    logger.info("✅ Telegram бот запущен на Railway!")
+    logger.info("✅ Telegram bot started on Railway!")
     
-    # Запускаем бота
+    # Run the bot
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
