@@ -11,6 +11,10 @@ import asyncio
 import time
 import schedule
 
+# Telegram Bot API
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -95,9 +99,6 @@ async def send_scheduled_reports(app, db, reports, report_type):
 async def start_telegram_bot():
     """Запуск Telegram бота с базой данных"""
     try:
-        from telegram.ext import Application, CommandHandler
-        from telegram import Update
-        from telegram.ext import ContextTypes
         from config import Config
         from database import Database
         from reports import ReportGenerator
@@ -352,6 +353,117 @@ async def start_telegram_bot():
             except Exception as e:
                 await update.message.reply_text(f"❌ Ошибка отписки: {e}")
 
+        async def groupinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Получение информации о текущей группе"""
+            chat = update.effective_chat
+            user = update.effective_user
+            
+            # Проверяем, что команда вызвана в группе
+            if chat.type not in ['group', 'supergroup']:
+                await update.message.reply_text("❌ Эта команда работает только в группах!")
+                return
+            
+            # Проверяем, что пользователь администратор
+            try:
+                chat_member = await context.bot.get_chat_member(chat.id, user.id)
+                if chat_member.status not in ['administrator', 'creator']:
+                    await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                    return
+            except Exception as e:
+                logger.warning(f"Не удалось проверить права пользователя: {e}")
+            
+            group_info = f"""
+🏛️ **Информация о группе**
+
+📋 **Название:** {chat.title or 'Без названия'}
+🆔 **ID группы:** `{chat.id}`
+👤 **Username:** @{chat.username or 'Не установлен'}
+👥 **Тип:** {chat.type}
+
+📊 **Для мониторинга этой группы:**
+1. Скопируйте ID группы: `{chat.id}`
+2. Добавьте группу в систему командой `/addgroup {chat.id}`
+
+⚙️ **Текущий статус мониторинга:**
+{'✅ Группа уже отслеживается' if db else '⚠️  База данных недоступна - сначала исправьте подключение к БД'}
+            """
+            
+            await update.message.reply_text(group_info, parse_mode='Markdown')
+            logger.info(f"Информация о группе {chat.id} запрошена пользователем {user.id}")
+
+        async def addgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Добавление группы в систему мониторинга"""
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            user_id = update.effective_user.id
+            
+            # Проверяем, что пользователь администратор бота
+            if str(user_id) not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы бота могут добавлять группы!")
+                return
+            
+            if not context.args:
+                await update.message.reply_text("""
+📋 **Добавление группы в мониторинг:**
+
+Использование: `/addgroup <ID_группы>`
+
+1. Добавьте бота в группу как администратора
+2. В группе выполните команду `/groupinfo` 
+3. Скопируйте ID группы
+4. Выполните `/addgroup <ID_группы>`
+
+Пример: `/addgroup -1001234567890`
+                """, parse_mode='Markdown')
+                return
+            
+            try:
+                group_id = int(context.args[0])
+                
+                # Получаем информацию о группе
+                try:
+                    chat = await context.bot.get_chat(group_id)
+                    members_count = await context.bot.get_chat_member_count(group_id)
+                    
+                    # Создаем объект группы
+                    from database import TelegramGroup
+                    group = TelegramGroup(
+                        group_id=group_id,
+                        username=chat.username,
+                        title=chat.title,
+                        description=chat.description,
+                        members_count=members_count,
+                        is_active=True
+                    )
+                    
+                    # Добавляем в базу данных
+                    await db.add_group(group)
+                    
+                    await update.message.reply_text(f"""
+✅ **Группа добавлена в систему мониторинга!**
+
+📋 **Название:** {chat.title}
+🆔 **ID:** `{group_id}`
+👥 **Участников:** {members_count}
+
+🚀 **Что дальше:**
+- Бот будет отслеживать активность в группе
+- Генерировать ежедневные и еженедельные отчеты
+- Пользователи могут подписаться на автоматические отчеты
+                    """, parse_mode='Markdown')
+                    
+                    logger.info(f"Группа {group_id} ({chat.title}) добавлена администратором {user_id}")
+                    
+                except Exception as e:
+                    await update.message.reply_text(f"❌ Ошибка получения информации о группе: {e}")
+                    
+            except ValueError:
+                await update.message.reply_text("❌ Неверный формат ID группы. Используйте числовой ID.")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Ошибка добавления группы: {e}")
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -363,6 +475,57 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("demo", demo_report_command))
         app.add_handler(CommandHandler("subscribe", subscribe_command))
         app.add_handler(CommandHandler("unsubscribe", unsubscribe_command))
+        app.add_handler(CommandHandler("groupinfo", groupinfo_command))
+        app.add_handler(CommandHandler("addgroup", addgroup_command))
+        
+        # Обработчик сообщений в группах
+        async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Обработка сообщений в группах для сбора аналитики"""
+            if not update.message or not update.effective_chat:
+                return
+                
+            chat = update.effective_chat
+            message = update.message
+            
+            # Только для групп и супергрупп
+            if chat.type not in ['group', 'supergroup']:
+                return
+            
+            # Проверяем, что группа отслеживается
+            if not db:
+                return
+                
+            try:
+                # Проверяем, что группа добавлена в систему мониторинга
+                groups = await db.get_active_groups()
+                group_ids = [g.group_id for g in groups]
+                
+                if chat.id not in group_ids:
+                    return  # Группа не отслеживается
+                
+                # Собираем данные сообщения
+                message_data = {
+                    'message_id': message.message_id,
+                    'group_id': chat.id,
+                    'user_id': message.from_user.id if message.from_user else None,
+                    'username': message.from_user.username if message.from_user else None,
+                    'text': message.text or '',
+                    'date': message.date,
+                    'reply_to_message_id': message.reply_to_message.message_id if message.reply_to_message else None,
+                    'forward_from_user_id': message.forward_from.id if message.forward_from else None,
+                    'views': 0,  # Будет обновляться отдельно
+                    'reactions': '{}'  # JSON для реакций
+                }
+                
+                # Сохраняем в базу данных
+                await db.save_messages([message_data])
+                logger.debug(f"Сообщение {message.message_id} из группы {chat.id} сохранено")
+                
+            except Exception as e:
+                logger.error(f"Ошибка обработки сообщения из группы {chat.id}: {e}")
+        
+        # Добавляем обработчик сообщений
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
         
         # Запуск бота
         await app.initialize()
