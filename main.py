@@ -10,6 +10,8 @@ import threading
 import asyncio
 import time
 import schedule
+import signal
+import sys
 from datetime import datetime, timedelta
 
 # Telegram Bot API
@@ -27,6 +29,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Глобальные переменные для graceful shutdown
+app_running = True
+telegram_app = None
 
 class HealthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -104,6 +110,8 @@ async def send_scheduled_reports(app, db, reports, report_type):
 
 async def start_telegram_bot():
     """Запуск Telegram бота с базой данных"""
+    global telegram_app, app_running
+    
     try:
         from config import Config
         from database import Database
@@ -116,7 +124,7 @@ async def start_telegram_bot():
         if not config.bot_token:
             logger.error("BOT_TOKEN не найден в переменных окружения!")
             logger.info("Работаю только как HTTP сервер")
-            while True:
+            while app_running:
                 await asyncio.sleep(60)
             return
 
@@ -173,6 +181,7 @@ async def start_telegram_bot():
         
         # Создание приложения бота
         app = Application.builder().token(config.bot_token).build()
+        telegram_app = app  # Сохраняем глобальную ссылку
         
         # Базовые команды
         async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1139,7 +1148,7 @@ async def start_telegram_bot():
                     logger.info("📅 Недельные отчеты: каждый понедельник в 09:00")
                     logger.info("🚨 Проверка алертов: каждые 30 минут")
                     
-                    while True:
+                    while app_running:
                         schedule.run_pending()
                         time.sleep(60)
                 
@@ -1152,22 +1161,40 @@ async def start_telegram_bot():
             logger.warning("⚠️  Планировщик не запущен (нет БД или системы отчетов)")
         
         # Поддержание работы
-        while True:
+        while app_running:
             await asyncio.sleep(60)
             
     except ImportError as e:
         logger.warning(f"Telegram бот недоступен (нет зависимостей): {e}")
         logger.info("Работаю только как HTTP сервер")
-        while True:
+        while app_running:
             await asyncio.sleep(60)
     except Exception as e:
         logger.error(f"Ошибка запуска бота: {e}")
         logger.info("Продолжаю работать как HTTP сервер")
-        while True:
+        while app_running:
             await asyncio.sleep(60)
 
 async def main():
     """Главная функция"""
+    global app_running, telegram_app
+    
+    def signal_handler(signum, frame):
+        global app_running, telegram_app
+        logger.info(f"Получен сигнал {signum}, начинаем graceful shutdown...")
+        app_running = False
+        if telegram_app:
+            try:
+                asyncio.create_task(telegram_app.stop())
+                logger.info("Telegram bot остановлен")
+            except Exception as e:
+                logger.error(f"Ошибка остановки telegram bot: {e}")
+        sys.exit(0)
+    
+    # Регистрируем обработчики сигналов
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     logger.info("=== 🚀 Запуск Telegram Analytics Bot (Шаг 4/4) ===")
     logger.info("🎯 ФИНАЛЬНАЯ ВЕРСИЯ - Полный функционал готов!")
     
