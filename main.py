@@ -140,7 +140,10 @@ async def start_telegram_bot():
                 logger.error("- DATABASE_PUBLIC_URL")
                 logger.error("- DATABASE_URL") 
             
+            logger.info("Создание объекта Database...")
             db = Database(config.database_url)
+            logger.info("Объект Database создан, начинаем инициализацию...")
+            
             await db.init_db()
             logger.info("✅ База данных подключена и инициализирована")
             
@@ -152,8 +155,14 @@ async def start_telegram_bot():
                 logger.warning(f"⚠️  Ошибка инициализации отчетов: {reports_error}")
                 
         except Exception as e:
-            logger.warning(f"⚠️  База данных недоступна: {e}")
-            logger.warning(f"Тип ошибки: {type(e).__name__}")
+            logger.error("❌" * 20)
+            logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА БАЗЫ ДАННЫХ: {e}")
+            logger.error(f"❌ Тип ошибки: {type(e).__name__}")
+            logger.error(f"❌ Подробности ошибки: {str(e)}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                logger.error(f"❌ Трассировка:\n{traceback.format_exc()}")
+            logger.error("❌" * 20)
             logger.info("Продолжаю без базы данных")
         
         # Создание приложения бота

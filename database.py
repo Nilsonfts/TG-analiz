@@ -42,6 +42,11 @@ class Database:
             logger.info(f"Попытка подключения к базе данных...")
             logger.info(f"DATABASE_URL начинается с: {self.database_url[:20]}...")
             
+            # Проверяем, что URL не None и не пустой
+            if not self.database_url:
+                raise ValueError("DATABASE_URL не установлен или пустой")
+            
+            logger.info("Создание пула подключений asyncpg...")
             # Сначала создаем пул
             self.pool = await asyncpg.create_pool(
                 self.database_url,
@@ -53,16 +58,22 @@ class Database:
             logger.info("✅ Пул подключений создан успешно")
             
             # Затем создаем таблицы
+            logger.info("Создание таблиц...")
             try:
                 await self.create_tables()
                 logger.info("✅ База данных успешно инициализирована")
             except Exception as table_error:
                 logger.warning(f"⚠️  Ошибка создания таблиц: {table_error}")
+                logger.warning(f"⚠️  Тип ошибки таблиц: {type(table_error).__name__}")
                 # Пул остается рабочим, но таблицы могут быть не созданы
                 
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации базы данных: {e}")
-            logger.error(f"Тип ошибки: {type(e).__name__}")
+            logger.error(f"❌ Тип ошибки: {type(e).__name__}")
+            logger.error(f"❌ Подробности: {str(e)}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                logger.error(f"❌ Трассировка БД:\n{traceback.format_exc()}")
             raise
     
     async def create_tables(self):
