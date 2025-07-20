@@ -1,11 +1,23 @@
-# TG-analiz 📊
+# 🤖 TG-analiz - Telegram Channel Analytics Bot
 
+[![Railway Deploy](https://img.shields.io/badge/Railway-Deploy-blueviolet?logo=railway&logoColor=white)](https://railway.app/new/template?template=https://github.com/Nilsonfts/TG-analiz)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)](https://python.org)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-blue?logo=telegram&logoColor=white)](https://core.telegram.org/bots)
 [![CI/CD Pipeline](https://github.com/Nilsonfts/TG-analiz/actions/workflows/ci.yml/badge.svg)](https://github.com/Nilsonfts/TG-analiz/actions/workflows/ci.yml)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Railway Deploy](https://img.shields.io/badge/deploy-railway-blueviolet)](https://railway.app)
 
-Comprehensive Telegram bot for channel analytics with Railway deployment support.
+> **Production-ready Telegram bot for channel analytics with Railway deployment support**
+
+## 🚀 Quick Deploy
+
+**Deploy in 1 minute:**
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Nilsonfts/TG-analiz)
+
+1. Click "Deploy on Railway" ↑
+2. Add `BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
+3. Your bot is live! 🎉
+
+**Detailed setup:** See [QUICK_START.md](QUICK_START.md)
 
 ## 🚀 Features
 
