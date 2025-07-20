@@ -59,20 +59,20 @@ class ChannelReportService:
             posts = summary.get("posts_count", 0)
 
             # Рост подписчиков
-            growth = summary.get("subscriber_growth", 0)
+            summary.get("subscriber_growth", 0)
             growth_percent = summary.get("growth_percentage", 0)
             growth_emoji = self.get_growth_emoji(growth_percent)
 
             # Просмотры
-            total_views = self.format_number(summary.get("total_views", 0))
-            story_views = self.format_number(summary.get("story_views", 0))
+            self.format_number(summary.get("total_views", 0))
+            self.format_number(summary.get("story_views", 0))
 
             # Реакции
-            reactions = summary.get("reactions_count", 0)
+            summary.get("reactions_count", 0)
 
             # Уведомления
             notifications_percent = summary.get("notifications_enabled_percent", 0)
-            notifications_emoji = self.get_engagement_emoji(notifications_percent)
+            self.get_engagement_emoji(notifications_percent)
 
             report = f"""📊 <b>СВОДНЫЙ ОТЧЁТ КАНАЛА</b>
 

@@ -29,7 +29,7 @@ class SchedulerService:
                 .filter(
                     UserSubscription.user_id == user.id,
                     UserSubscription.subscription_type == subscription_type,
-                    UserSubscription.is_active == True,
+                    UserSubscription.is_active is True,
                 )
                 .first()
             )
@@ -79,7 +79,7 @@ class SchedulerService:
                 .filter(
                     UserSubscription.user_id == user.id,
                     UserSubscription.subscription_type == subscription_type,
-                    UserSubscription.is_active == True,
+                    UserSubscription.is_active is True,
                 )
                 .first()
             )
@@ -123,8 +123,8 @@ class SchedulerService:
                 .join(User)
                 .filter(
                     UserSubscription.subscription_type == subscription_type,
-                    UserSubscription.is_active == True,
-                    User.is_active == True,
+                    UserSubscription.is_active is True,
+                    User.is_active is True,
                 )
                 .all()
             )
@@ -157,7 +157,7 @@ class SchedulerService:
                 db.query(UserSubscription)
                 .filter(
                     UserSubscription.user_id == user.id,
-                    UserSubscription.is_active == True,
+                    UserSubscription.is_active is True,
                 )
                 .all()
             )
@@ -185,7 +185,7 @@ class SchedulerService:
             inactive_count = (
                 db.query(UserSubscription)
                 .join(User)
-                .filter(User.is_active == False)
+                .filter(User.is_active is False)
                 .update({"is_active": False}, synchronize_session=False)
             )
 
@@ -211,16 +211,16 @@ class SchedulerService:
                     db.query(UserSubscription)
                     .filter(
                         UserSubscription.subscription_type == sub_type,
-                        UserSubscription.is_active == True,
+                        UserSubscription.is_active is True,
                     )
                     .count()
                 )
                 stats[sub_type] = count
 
-            total_users = db.query(User).filter(User.is_active == True).count()
+            total_users = db.query(User).filter(User.is_active is True).count()
             total_subscriptions = (
                 db.query(UserSubscription)
-                .filter(UserSubscription.is_active == True)
+                .filter(UserSubscription.is_active is True)
                 .count()
             )
 

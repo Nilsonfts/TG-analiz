@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Optional
+from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
@@ -53,7 +53,7 @@ async def init_telethon() -> bool:
     return False
 
 
-async def get_real_channel_stats() -> Optional[dict[str, Any]]:
+async def get_real_channel_stats() -> dict[str, Any] | None:
     """Get real channel statistics using Telethon.
 
     Returns:
@@ -132,7 +132,7 @@ def start_http_server() -> None:
 
 
 # Команды бота
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /start"""
     # Проверяем подключение к каналу
     channel_status = "🔗 Подключен" if CHANNEL_ID else "⚠️ Не настроен"
@@ -154,7 +154,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /channel_info - информация о подключенном канале"""
     if not CHANNEL_ID:
         await update.message.reply_text(
@@ -191,7 +191,7 @@ async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 
-async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /summary"""
     # Пытаемся получить реальные данные
     real_stats = await get_real_channel_stats()
@@ -226,7 +226,7 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /growth"""
     await update.message.reply_text(
         "📈 <b>Рост подписчиков (7 дней)</b>\n\n"
@@ -245,7 +245,7 @@ async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /charts"""
     keyboard = [
         [InlineKeyboardButton("📈 Рост подписчиков", callback_data="chart_growth")],
@@ -266,7 +266,7 @@ async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработка нажатий кнопок графиков"""
     query = update.callback_query
     await query.answer()
@@ -287,7 +287,7 @@ async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /help"""
     await update.message.reply_text(
         "❓ <b>Справка по боту</b>\n\n"
@@ -307,7 +307,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработка неизвестных команд"""
     await update.message.reply_text(
         "❓ Неизвестная команда.\n\n"
@@ -316,7 +316,7 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def main():
+async def main() -> None:
     """Основная функция"""
     if not BOT_TOKEN:
         logger.error("❌ BOT_TOKEN не найден в переменных окружения!")

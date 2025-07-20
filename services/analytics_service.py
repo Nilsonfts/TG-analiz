@@ -46,7 +46,7 @@ class AnalyticsService:
         db = get_db()
         try:
             groups = (
-                db.query(TelegramGroup).filter(TelegramGroup.is_active == True).all()
+                db.query(TelegramGroup).filter(TelegramGroup.is_active is True).all()
             )
             self.monitored_groups = [
                 {

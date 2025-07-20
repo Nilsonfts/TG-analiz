@@ -1,7 +1,6 @@
 import io
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -54,7 +53,7 @@ class ChannelChartGenerator:
 
     async def generate_subscriber_growth_chart(
         self, channel_id: int, days: int = 30
-    ) -> Optional[io.BytesIO]:
+    ) -> io.BytesIO | None:
         """Генерация графика роста подписчиков"""
         try:
             growth_data = await self.analytics.get_subscriber_growth_data(
@@ -92,7 +91,7 @@ class ChannelChartGenerator:
 
             # Добавление линии тренда
             if len(dates) > 1:
-                x_numeric = [i for i in range(len(dates))]
+                x_numeric = list(range(len(dates)))
                 z = np.polyfit(x_numeric, net_growth, 1)
                 p = np.poly1d(z)
                 ax1.plot(
@@ -171,7 +170,7 @@ class ChannelChartGenerator:
 
     async def generate_hourly_activity_chart(
         self, channel_id: int, days: int = 7
-    ) -> Optional[io.BytesIO]:
+    ) -> io.BytesIO | None:
         """Генерация графика почасовой активности"""
         try:
             hourly_data = await self.analytics.get_hourly_views_data(channel_id, days)
@@ -217,7 +216,7 @@ class ChannelChartGenerator:
             width = 0.35
             x = np.arange(len(hours))
 
-            bars1 = ax.bar(
+            ax.bar(
                 x - width / 2,
                 avg_views,
                 width,
@@ -225,7 +224,7 @@ class ChannelChartGenerator:
                 color="#3498DB",
                 alpha=0.8,
             )
-            bars2 = ax.bar(
+            ax.bar(
                 x + width / 2,
                 avg_story_views,
                 width,
@@ -263,7 +262,7 @@ class ChannelChartGenerator:
 
     async def generate_traffic_sources_chart(
         self, channel_id: int, days: int = 30
-    ) -> Optional[io.BytesIO]:
+    ) -> io.BytesIO | None:
         """Генерация графика источников трафика"""
         try:
             traffic_data = await self.analytics.get_traffic_sources_data(
@@ -333,7 +332,7 @@ class ChannelChartGenerator:
 
     async def generate_engagement_trends_chart(
         self, channel_id: int, days: int = 30
-    ) -> Optional[io.BytesIO]:
+    ) -> io.BytesIO | None:
         """Генерация графика трендов вовлеченности"""
         try:
             # Получаем данные о просмотрах по дням
@@ -418,7 +417,7 @@ class ChannelChartGenerator:
             logger.error(f"Ошибка генерации графика трендов вовлеченности: {e}")
             return None
 
-    async def generate_dashboard_chart(self, channel_id: int) -> Optional[io.BytesIO]:
+    async def generate_dashboard_chart(self, channel_id: int) -> io.BytesIO | None:
         """Генерация комплексного дашборда"""
         try:
             # Получение сводных данных
@@ -453,7 +452,7 @@ class ChannelChartGenerator:
                 fontsize=16,
                 ha="center",
                 va="center",
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="lightblue", alpha=0.8),
+                bbox={"boxstyle": "round,pad=0.5", "facecolor": "lightblue", "alpha": 0.8},
             )
 
             # 2. График роста (имитация данных)

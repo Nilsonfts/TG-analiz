@@ -19,7 +19,6 @@ scheduler_service = SchedulerService()
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка команды /start"""
     user = update.effective_user
-    chat_id = update.effective_chat.id
 
     # Сохранение пользователя в базу данных
     db = get_db()

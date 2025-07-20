@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import asyncpg
 
@@ -197,7 +197,7 @@ class ChannelAnalytics:
                 for row in rows
             ]
 
-    async def get_channel_by_id(self, channel_id: int) -> Optional[TelegramChannel]:
+    async def get_channel_by_id(self, channel_id: int) -> TelegramChannel | None:
         """Получение канала по ID"""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(

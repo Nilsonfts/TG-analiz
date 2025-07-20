@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import asyncpg
 
@@ -346,7 +346,7 @@ class Database:
         if self.pool:
             await self.pool.close()
 
-    async def get_group_by_id(self, group_id: int) -> Optional[TelegramGroup]:
+    async def get_group_by_id(self, group_id: int) -> TelegramGroup | None:
         """Получение группы по ID"""
         try:
             async with self.pool.acquire() as conn:

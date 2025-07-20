@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -177,7 +177,7 @@ class ReportService:
                 .filter(
                     GroupAnalytics.date >= start_datetime,
                     GroupAnalytics.date < end_datetime,
-                    TelegramGroup.is_active == True,
+                    TelegramGroup.is_active is True,
                 )
                 .all()
             )
@@ -215,7 +215,7 @@ class ReportService:
                 .filter(
                     GroupPost.post_date >= start_datetime,
                     GroupPost.post_date < end_datetime,
-                    TelegramGroup.is_active == True,
+                    TelegramGroup.is_active is True,
                 )
                 .all()
             )
@@ -280,7 +280,7 @@ class ReportService:
                 .filter(
                     GroupPost.post_date >= start_datetime,
                     GroupPost.post_date < end_datetime,
-                    TelegramGroup.is_active == True,
+                    TelegramGroup.is_active is True,
                 )
                 .order_by(GroupPost.views.desc())
                 .all()
@@ -563,7 +563,7 @@ class ReportService:
 
     async def _generate_daily_chart(
         self, groups_data: list[dict], date: date
-    ) -> Optional[str]:
+    ) -> str | None:
         """Генерация графика для ежедневного отчета"""
         if not groups_data:
             return None
@@ -627,7 +627,7 @@ class ReportService:
 
     async def _generate_weekly_chart(
         self, groups_data: list[dict], start_date: date, end_date: date
-    ) -> Optional[str]:
+    ) -> str | None:
         """Генерация графика для еженедельного отчета"""
         if not groups_data:
             return None
@@ -708,7 +708,7 @@ class ReportService:
 
     async def _generate_monthly_chart(
         self, groups_data: list[dict], start_date: date, end_date: date
-    ) -> Optional[str]:
+    ) -> str | None:
         """Генерация графика для ежемесячного отчета"""
         # Используем еженедельный график как базу, но с расширенным анализом
         return await self._generate_weekly_chart(groups_data, start_date, end_date)
