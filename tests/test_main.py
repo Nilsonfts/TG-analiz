@@ -1,17 +1,18 @@
 """Tests for main bot functionality."""
 
-import asyncio
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+
 from main import (
-    start_command,
-    help_command,
-    summary_command,
-    growth_command,
-    charts_command,
     channel_info_command,
+    charts_command,
     get_real_channel_stats,
+    growth_command,
+    help_command,
     init_telethon,
+    start_command,
+    summary_command,
 )
 
 
@@ -63,11 +64,11 @@ class TestTelethonIntegration:
     @pytest.mark.asyncio
     async def test_init_telethon_success(self, mock_env_vars):
         """Test successful Telethon initialization."""
-        with patch('main.TelegramClient') as mock_client_class:
+        with patch("main.TelegramClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.start = AsyncMock()
             mock_client_class.return_value = mock_client
-            
+
             result = await init_telethon()
             assert result is True
             mock_client.start.assert_called_once()
@@ -75,14 +76,14 @@ class TestTelethonIntegration:
     @pytest.mark.asyncio
     async def test_init_telethon_no_credentials(self):
         """Test Telethon initialization without credentials."""
-        with patch.dict('os.environ', {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             result = await init_telethon()
             assert result is False
 
     @pytest.mark.asyncio
     async def test_get_real_channel_stats_no_client(self):
         """Test getting channel stats without client."""
-        with patch('main.telethon_client', None):
+        with patch("main.telethon_client", None):
             result = await get_real_channel_stats()
             assert result is None
 
@@ -102,7 +103,7 @@ class TestErrorHandling:
     async def test_command_with_exception(self, mock_update, mock_context):
         """Test command handling when an exception occurs."""
         mock_update.message.reply_text.side_effect = Exception("Test error")
-        
+
         # Should not raise exception
         try:
             await start_command(mock_update, mock_context)
@@ -117,10 +118,11 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_main_without_bot_token(self):
         """Test main function without bot token."""
-        with patch.dict('os.environ', {}, clear=True):
-            with patch('main.start_http_server') as mock_http:
-                with patch('main.logger') as mock_logger:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("main.start_http_server") as mock_http:
+                with patch("main.logger") as mock_logger:
                     from main import main
+
                     await main()
                     mock_logger.error.assert_called()
                     mock_http.assert_called_once()

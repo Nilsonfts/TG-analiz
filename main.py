@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
@@ -34,7 +34,7 @@ telethon_client: Any = None
 
 async def init_telethon() -> bool:
     """Initialize Telethon client for channel data access.
-    
+
     Returns:
         bool: True if initialization successful, False otherwise.
     """
@@ -53,9 +53,9 @@ async def init_telethon() -> bool:
     return False
 
 
-async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
+async def get_real_channel_stats() -> Optional[dict[str, Any]]:
     """Get real channel statistics using Telethon.
-    
+
     Returns:
         Optional[Dict[str, Any]]: Channel stats or None if unavailable.
     """
@@ -82,6 +82,7 @@ async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"❌ Error getting channel stats: {e}")
         return None
+
 
 # HTTP server for healthcheck
 class HealthHandler(BaseHTTPRequestHandler):
@@ -129,13 +130,14 @@ def start_http_server() -> None:
     except Exception as e:
         logger.error(f"❌ HTTP server error: {e}")
 
+
 # Команды бота
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start"""
     # Проверяем подключение к каналу
     channel_status = "🔗 Подключен" if CHANNEL_ID else "⚠️ Не настроен"
     api_status = "🔗 Подключен" if API_ID and API_HASH else "⚠️ Нужны API_ID и API_HASH"
-    
+
     await update.message.reply_text(
         "🚀 <b>Telegram Channel Analytics Bot</b>\n\n"
         "✅ Бот успешно работает на Railway!\n"
@@ -148,8 +150,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /channel_info - Информация о канале\n"
         "• /help - Помощь\n\n"
         f"🔧 <i>ID канала: {CHANNEL_ID or 'не установлен'}</i>",
-        parse_mode='HTML'
+        parse_mode="HTML",
     )
+
 
 async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /channel_info - информация о подключенном канале"""
@@ -160,13 +163,13 @@ async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
             "• <code>CHANNEL_ID</code> - ID вашего канала\n"
             "• <code>API_ID</code> - с my.telegram.org/apps\n"
             "• <code>API_HASH</code> - с my.telegram.org/apps",
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
         return
-    
+
     # Пытаемся получить реальные данные
     real_stats = await get_real_channel_stats()
-    
+
     if real_stats:
         await update.message.reply_text(
             f"📊 <b>Информация о канале</b>\n\n"
@@ -176,7 +179,7 @@ async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"📝 <b>Описание:</b> {real_stats['description']}\n\n"
             f"🆔 <b>ID:</b> <code>{CHANNEL_ID}</code>\n"
             f"✅ <b>Статус:</b> Подключен и работает",
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
     else:
         await update.message.reply_text(
@@ -184,19 +187,20 @@ async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"🆔 <b>ID канала:</b> <code>{CHANNEL_ID}</code>\n"
             f"🔧 <b>API:</b> {'✅ Настроен' if API_ID and API_HASH else '⚠️ Нужны API_ID и API_HASH'}\n\n"
             "💡 <i>Для получения реальных данных добавьте API_ID и API_HASH в Railway Variables</i>",
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
+
 
 async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /summary"""
     # Пытаемся получить реальные данные
     real_stats = await get_real_channel_stats()
-    
+
     if real_stats:
         # Показываем реальные данные
-        growth_today = "+127" # Временно, пока не добавим историю
-        growth_week = "+0.8%" # Временно
-        
+        growth_today = "+127"  # Временно, пока не добавим историю
+        growth_week = "+0.8%"  # Временно
+
         await update.message.reply_text(
             f"📊 <b>Сводка: {real_stats['title']}</b>\n\n"
             f"👥 Подписчики: {real_stats['participants_count']:,} ({growth_today} за день)\n"
@@ -206,7 +210,7 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔄 Вовлеченность: 12.3%\n\n"
             f"🔗 @{real_stats['username']}\n"
             f"✅ <i>Реальные данные из Telegram API</i>",
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
     else:
         # Показываем тестовые данные
@@ -218,8 +222,9 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎯 Охват: 78.5% подписчиков\n"
             "🔄 Вовлеченность: 12.3%\n\n"
             f"� <i>Тестовые данные. Канал: {CHANNEL_ID or 'не настроен'}</i>",
-            parse_mode='HTML'
+            parse_mode="HTML",
         )
+
 
 async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /growth"""
@@ -236,45 +241,51 @@ async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 <b>Итого:</b> +305 подписчиков\n"
         "🏆 <b>Лучший день:</b> Пятница (+67)\n"
         "📍 <b>Средний прирост:</b> +44/день",
-        parse_mode='HTML'
+        parse_mode="HTML",
     )
+
 
 async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /charts"""
     keyboard = [
         [InlineKeyboardButton("📈 Рост подписчиков", callback_data="chart_growth")],
-        [InlineKeyboardButton("⏰ Активность по часам", callback_data="chart_activity")],
+        [
+            InlineKeyboardButton(
+                "⏰ Активность по часам", callback_data="chart_activity"
+            )
+        ],
         [InlineKeyboardButton("🎯 Источники трафика", callback_data="chart_traffic")],
-        [InlineKeyboardButton("📊 Полный дашборд", callback_data="chart_dashboard")]
+        [InlineKeyboardButton("📊 Полный дашборд", callback_data="chart_dashboard")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
-        "📊 <b>Интерактивные графики</b>\n\n"
-        "Выберите тип визуализации:",
+        "📊 <b>Интерактивные графики</b>\n\n" "Выберите тип визуализации:",
         reply_markup=reply_markup,
-        parse_mode='HTML'
+        parse_mode="HTML",
     )
+
 
 async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка нажатий кнопок графиков"""
     query = update.callback_query
     await query.answer()
-    
+
     chart_type = query.data.replace("chart_", "")
-    
+
     messages = {
         "growth": "📈 <b>График роста подписчиков</b>\n\n🎯 Тренд: Положительный\n📊 30-дневная динамика готова",
         "activity": "⏰ <b>Активность по часам</b>\n\n🕐 Пик: 12:00, 18:00, 21:00\n📱 Анализ 7 дней",
         "traffic": "🎯 <b>Источники трафика</b>\n\n🔗 URL: 45%\n🔍 Поиск: 30%\n👥 Другие каналы: 25%",
-        "dashboard": "🎛 <b>Полный дашборд</b>\n\n📊 Все метрики собраны\n✅ Готов к анализу"
+        "dashboard": "🎛 <b>Полный дашборд</b>\n\n📊 Все метрики собраны\n✅ Готов к анализу",
     }
-    
+
     await query.edit_message_text(
         f"{messages.get(chart_type, '📊 Генерируем график...')}\n\n"
         "🚀 <i>Railway деплой успешен! Графики будут готовы после подключения к каналам.</i>",
-        parse_mode='HTML'
+        parse_mode="HTML",
     )
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help"""
@@ -292,8 +303,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2. 🔄 Добавьте переменные окружения\n"
         "3. 📊 Подключите каналы для аналитики\n\n"
         "💡 <b>Документация:</b> GitHub > SETUP.md",
-        parse_mode='HTML'
+        parse_mode="HTML",
     )
+
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка неизвестных команд"""
@@ -303,6 +315,7 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚀 Railway деплой работает!"
     )
 
+
 async def main():
     """Основная функция"""
     if not BOT_TOKEN:
@@ -311,21 +324,21 @@ async def main():
         # Запускаем только HTTP сервер
         start_http_server()
         return
-    
+
     logger.info("🚀 Запуск Telegram Bot на Railway...")
     logger.info(f"🤖 Токен: {BOT_TOKEN[:10]}...")
     logger.info(f"📊 Канал: {CHANNEL_ID or 'не настроен'}")
-    
+
     # Инициализируем Telethon для работы с каналом
     await init_telethon()
-    
+
     # Запускаем HTTP сервер в отдельном потоке
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
-    
+
     # Создаем приложение Telegram бота
     application = Application.builder().token(BOT_TOKEN).build()
-    
+
     # Добавляем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("summary", summary_command))
@@ -333,18 +346,22 @@ async def main():
     application.add_handler(CommandHandler("charts", charts_command))
     application.add_handler(CommandHandler("channel_info", channel_info_command))
     application.add_handler(CommandHandler("help", help_command))
-    
+
     # Обработчик нажатий кнопок
-    application.add_handler(CallbackQueryHandler(handle_chart_callback, pattern="^chart_"))
-    
+    application.add_handler(
+        CallbackQueryHandler(handle_chart_callback, pattern="^chart_")
+    )
+
     # Обработчик неизвестных команд
     from telegram.ext import MessageHandler, filters
+
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-    
+
     logger.info("✅ Telegram бот запущен на Railway!")
-    
+
     # Запускаем бота
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
