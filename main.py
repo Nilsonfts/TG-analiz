@@ -12,14 +12,21 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
-
-# Configure logging
+# Configure logging first
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Import Telegram libraries with error handling
+try:
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+    from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+    TELEGRAM_AVAILABLE = True
+    logger.info("✅ Telegram libraries imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Telegram import error: {e}")
+    TELEGRAM_AVAILABLE = False
 
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -103,6 +110,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 "status": "healthy",
                 "service": "telegram-bot",
                 "railway": True,
+                "telegram_available": TELEGRAM_AVAILABLE,
                 "bot_token_set": bool(BOT_TOKEN),
                 "channel_configured": bool(CHANNEL_ID),
                 "telethon_configured": bool(API_ID and API_HASH),
@@ -313,12 +321,25 @@ async def main() -> None:
     logger.info("🚀 Starting TG-analiz bot on Railway...")
     logger.info(f"🔧 Port: {PORT}")
     logger.info(f"🤖 Bot token: {'✅ Set' if BOT_TOKEN else '❌ Missing'}")
-    logger.info(f"� Channel: {CHANNEL_ID or 'Not configured'}")
+    logger.info(f"📺 Channel: {CHANNEL_ID or 'Not configured'}")
+    logger.info(f"📚 Telegram libs: {'✅ Available' if TELEGRAM_AVAILABLE else '❌ Missing'}")
     
     # Always start HTTP server first for health checks
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
     logger.info("🌐 HTTP health check server started")
+    
+    # Check if we can run the Telegram bot
+    if not TELEGRAM_AVAILABLE:
+        logger.error("❌ Telegram libraries not available!")
+        logger.info("💡 Install: pip install python-telegram-bot telethon")
+        logger.info("🏥 Health check server running on /health")
+        # Keep the process alive for health checks
+        try:
+            await asyncio.sleep(float('inf'))
+        except KeyboardInterrupt:
+            logger.info("👋 Graceful shutdown")
+        return
     
     if not BOT_TOKEN:
         logger.error("❌ BOT_TOKEN not found in environment variables!")
@@ -349,7 +370,6 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_chart_callback, pattern="^chart_"))
     
     # Add unknown command handler
-    from telegram.ext import MessageHandler, filters
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     
     logger.info("✅ Telegram bot started on Railway!")
