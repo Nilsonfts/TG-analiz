@@ -1,1 +1,1 @@
-web: python main.py
+web: python main_simple_health.py
