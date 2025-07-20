@@ -542,7 +542,9 @@ async def start_telegram_bot():
             db_vars = {}
             possible_vars = [
                 'DATABASE_URL', 'DATABASE_PUBLIC_URL', 'POSTGRES_URL', 'POSTGRES_PUBLIC_URL',
-                'DB_URL', 'DB_PUBLIC_URL', 'RAILWAY_DATABASE_URL'
+                'DB_URL', 'DB_PUBLIC_URL', 'RAILWAY_DATABASE_URL', 'PGUSER', 'PGHOST', 
+                'PGPORT', 'PGDATABASE', 'POSTGRES_PASSWORD', 'RAILWAY_TCP_PROXY_DOMAIN',
+                'RAILWAY_TCP_PROXY_PORT', 'RAILWAY_PRIVATE_DOMAIN'
             ]
             
             for var in possible_vars:
@@ -565,9 +567,37 @@ async def start_telegram_bot():
 • Используется: {config.database_url[:30] + '...' if config.database_url else 'Не установлен'}
 • Содержит localhost: {'Да' if config.database_url and ('localhost' in config.database_url or '127.0.0.1' in config.database_url) else 'Нет'}
 
+**Попытка собрать внешний URL:**"""
+
+            # Пытаемся собрать внешний URL из компонентов
+            pguser = os.getenv('PGUSER')
+            pgpass = os.getenv('POSTGRES_PASSWORD') 
+            pghost = os.getenv('RAILWAY_TCP_PROXY_DOMAIN')
+            pgport = os.getenv('RAILWAY_TCP_PROXY_PORT')
+            pgdb = os.getenv('PGDATABASE')
+            
+            if all([pguser, pgpass, pghost, pgport, pgdb]):
+                manual_url = f"postgresql://{pguser}:{pgpass}@{pghost}:{pgport}/{pgdb}"
+                test_info += f"""
+• MANUAL_URL: {manual_url[:50]}...
+• Содержит localhost: {'Да' if 'localhost' in manual_url else 'Нет'}
+
 **Рекомендация:**
-{'Добавьте DATABASE_PUBLIC_URL с внешним адресом PostgreSQL' if not db_vars.get('DATABASE_PUBLIC_URL') else 'DATABASE_PUBLIC_URL найден'}
-            """
+{'Используйте собранный URL выше' if 'localhost' not in manual_url else 'Добавьте DATABASE_PUBLIC_URL с внешним адресом PostgreSQL'}
+"""
+            else:
+                test_info += f"""
+
+**Компоненты для сборки URL:**
+• PGUSER: {'✅' if pguser else '❌'}
+• POSTGRES_PASSWORD: {'✅' if pgpass else '❌'}
+• RAILWAY_TCP_PROXY_DOMAIN: {'✅' if pghost else '❌'}
+• RAILWAY_TCP_PROXY_PORT: {'✅' if pgport else '❌'}  
+• PGDATABASE: {'✅' if pgdb else '❌'}
+
+**Рекомендация:**
+Добавьте DATABASE_PUBLIC_URL с внешним адресом PostgreSQL
+"""
             
             await update.message.reply_text(test_info, parse_mode='Markdown')
 
