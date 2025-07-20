@@ -30,6 +30,7 @@ class TelegramAnalyticsBot:
         self.analytics = AnalyticsCollector(self.config, self.db)
         self.reports = ReportGenerator(self.db)
         self.app = None
+        self.web_runner = None
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
@@ -213,11 +214,12 @@ class TelegramAnalyticsBot:
         
         # Запуск сервера
         port = int(os.getenv('PORT', 8000))
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', port)
+        self.web_runner = web.AppRunner(app)
+        await self.web_runner.setup()
+        site = web.TCPSite(self.web_runner, '0.0.0.0', port)
         await site.start()
         logger.info(f"HTTP сервер запущен на порту {port}")
+        return self.web_runner
 
     async def run(self):
         """Основной метод запуска бота"""
@@ -267,43 +269,21 @@ class TelegramAnalyticsBot:
             logger.error(f"Критическая ошибка: {e}")
             raise
 
-async def main():
-    """Точка входа"""
-    bot = TelegramAnalyticsBot()
-    await bot.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-        await self.application.updater.start_polling()
-        
-        logger.info("Бот запущен и работает...")
-        
-        try:
-            # Ожидание завершения
-            await asyncio.Event().wait()
-        except KeyboardInterrupt:
-            logger.info("Получен сигнал завершения")
-        finally:
-            await self.shutdown()
-
     async def shutdown(self):
         """Корректное завершение работы бота"""
         logger.info("Завершение работы бота...")
         
         try:
-            if self.application:
-                await self.application.updater.stop()
-                await self.application.stop()
-                await self.application.shutdown()
+            if self.app:
+                await self.app.updater.stop()
+                await self.app.stop()
+                await self.app.shutdown()
             
-            if self.telethon_client:
-                await self.telethon_client.disconnect()
-            
-            if self.web_runner:
+            if hasattr(self, 'web_runner') and self.web_runner:
                 await self.web_runner.cleanup()
                 
         except Exception as e:
-            ErrorHandler.log_error(e, "Bot shutdown")
+            logger.error(f"Ошибка при завершении: {e}")
         
         logger.info("Бот завершен")
 
