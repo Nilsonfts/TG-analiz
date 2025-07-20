@@ -1,32 +1,42 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# Устанавливаем системные зависимости
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем рабочую директорию
+# Set working directory
 WORKDIR /app
 
-# Копируем файл зависимостей
+# Copy requirements first for better caching
 COPY requirements.txt .
 
-# Обновляем pip и устанавливаем зависимости
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip and install dependencies
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Копируем остальные файлы приложения
+# Copy application files
 COPY . .
 
-# Создаем пользователя для безопасности
-RUN useradd --create-home --shell /bin/bash app
-RUN chown -R app:app /app
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash --user-group app && \
+    chown -R app:app /app
 USER app
 
-# Открываем порт
+# Expose port
 EXPOSE $PORT
 
-# Команда запуска
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+
+# Run the application
 CMD ["python", "main.py"]

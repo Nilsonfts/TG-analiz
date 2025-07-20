@@ -1,95 +1,133 @@
 #!/usr/bin/env python3
 """
-Railway Telegram Bot with HTTP healthcheck and real channel support
+Railway Telegram Bot with HTTP healthcheck and real channel support.
+
+A comprehensive Telegram bot for channel analytics with Railway deployment support.
 """
-import os
 import asyncio
 import logging
+import os
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any, Dict, Optional
 
-# Настройка логирования
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+
+# Configure logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Получаем переменные окружения
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-API_ID = os.getenv('API_ID')
-API_HASH = os.getenv('API_HASH')
-CHANNEL_ID = os.getenv('CHANNEL_ID')
-ADMIN_USERS = os.getenv('ADMIN_USERS', '').split(',')
+# Environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+ADMIN_USERS = os.getenv("ADMIN_USERS", "").split(",")
+PORT = int(os.getenv("PORT", "8080"))
 
-# Telethon клиент для работы с каналом
-telethon_client = None
+# Global Telethon client
+telethon_client: Any = None
 
-# Инициализация Telethon для получения реальных данных
-async def init_telethon():
-    """Инициализация Telethon клиента"""
+
+async def init_telethon() -> bool:
+    """Initialize Telethon client for channel data access.
+    
+    Returns:
+        bool: True if initialization successful, False otherwise.
+    """
     global telethon_client
     if API_ID and API_HASH:
         try:
             from telethon import TelegramClient
-            telethon_client = TelegramClient('railway_session', int(API_ID), API_HASH)
+
+            telethon_client = TelegramClient("railway_session", int(API_ID), API_HASH)
             await telethon_client.start()
-            logger.info("✅ Telethon подключен для работы с каналом")
+            logger.info("✅ Telethon connected for channel work")
             return True
         except Exception as e:
-            logger.error(f"❌ Ошибка инициализации Telethon: {e}")
+            logger.error(f"❌ Telethon initialization error: {e}")
             return False
     return False
 
-async def get_real_channel_stats():
-    """Получение реальной статистики канала"""
+
+async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
+    """Get real channel statistics using Telethon.
+    
+    Returns:
+        Optional[Dict[str, Any]]: Channel stats or None if unavailable.
+    """
     if not telethon_client or not CHANNEL_ID:
         return None
-    
+
     try:
-        # Получаем информацию о канале
+        # Get channel information
         channel = await telethon_client.get_entity(int(CHANNEL_ID))
-        
-        # Получаем статистику
+
+        # Get statistics
         stats = {
-            'title': channel.title,
-            'username': getattr(channel, 'username', 'Приватный канал'),
-            'participants_count': getattr(channel, 'participants_count', 0),
-            'description': getattr(channel, 'about', '')[:100] + '...' if getattr(channel, 'about', '') else ''
+            "title": channel.title,
+            "username": getattr(channel, "username", "Private channel"),
+            "participants_count": getattr(channel, "participants_count", 0),
+            "description": (
+                getattr(channel, "about", "")[:100] + "..."
+                if getattr(channel, "about", "")
+                else ""
+            ),
         }
-        
+
         return stats
     except Exception as e:
-        logger.error(f"❌ Ошибка получения статистики канала: {e}")
+        logger.error(f"❌ Error getting channel stats: {e}")
         return None
 
-# HTTP сервер для healthcheck
+# HTTP server for healthcheck
 class HealthHandler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass  # Отключаем логи HTTP сервера
-    
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        
-        status = {
-            "status": "ok", 
-            "bot": "running",
-            "channel_connected": bool(CHANNEL_ID),
-            "telethon_ready": bool(telethon_client)
-        }
-        
-        self.wfile.write(str(status).replace("'", '"').encode())
+    """HTTP handler for health checks and status endpoints."""
 
-def start_http_server():
-    """Запуск HTTP сервера для healthcheck"""
-    port = int(os.environ.get('PORT', 8000))
-    server = HTTPServer(('0.0.0.0', port), HealthHandler)
-    logger.info(f"HTTP сервер запущен на порту {port}")
-    server.serve_forever()
+    def log_message(self, format: str, *args: Any) -> None:
+        """Disable HTTP server logs."""
+        pass
+
+    def do_GET(self) -> None:
+        """Handle GET requests for health checks."""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+
+        if self.path == "/health":
+            response = {
+                "status": "healthy",
+                "service": "telegram-bot",
+                "railway": True,
+                "bot_token_set": bool(BOT_TOKEN),
+                "channel_configured": bool(CHANNEL_ID),
+                "telethon_configured": bool(API_ID and API_HASH),
+            }
+        else:
+            response = {
+                "message": "🤖 Railway Telegram Bot",
+                "status": "running",
+                "endpoints": {
+                    "/health": "Health check",
+                    "/": "Bot info",
+                },
+            }
+
+        self.wfile.write(str(response).encode())
+
+
+def start_http_server() -> None:
+    """Start HTTP server for Railway health checks."""
+    try:
+        port = PORT
+        server = HTTPServer(("0.0.0.0", port), HealthHandler)
+        logger.info(f"🌐 HTTP server started on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"❌ HTTP server error: {e}")
 
 # Команды бота
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
