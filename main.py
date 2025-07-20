@@ -185,32 +185,50 @@ class TelegramAnalyticsBot:
             
             class HealthHandler(http.server.SimpleHTTPRequestHandler):
                 def do_GET(self):
+                    logger.info(f"HTTP запрос: {self.path} от {self.client_address}")
+                    
                     if self.path == '/health':
                         self.send_response(200)
                         self.send_header('Content-type', 'text/plain')
+                        self.send_header('Connection', 'close')
                         self.end_headers()
                         self.wfile.write(b'OK')
+                        logger.info("Health check отвечен успешно")
                     elif self.path == '/':
                         self.send_response(200)
                         self.send_header('Content-type', 'text/plain')
+                        self.send_header('Connection', 'close')
                         self.end_headers()
                         self.wfile.write(b'Telegram Analytics Bot is running')
+                        logger.info("Root endpoint отвечен успешно")
                     else:
                         self.send_response(404)
+                        self.send_header('Connection', 'close')
                         self.end_headers()
+                        logger.info(f"404 для пути: {self.path}")
                 
                 def log_message(self, format, *args):
-                    # Подавляем логи HTTP сервера
-                    pass
+                    # Включаем логи HTTP сервера для отладки
+                    logger.info(f"HTTP: {format % args}")
 
             def run_server():
-                with socketserver.TCPServer(('', port), HealthHandler) as httpd:
-                    logger.info(f"HTTP сервер запущен на порту {port}")
-                    httpd.serve_forever()
+                try:
+                    # Используем ('0.0.0.0', port) для привязки ко всем интерфейсам
+                    with socketserver.TCPServer(('0.0.0.0', port), HealthHandler) as httpd:
+                        logger.info(f"HTTP сервер запущен на 0.0.0.0:{port}")
+                        httpd.allow_reuse_address = True
+                        httpd.serve_forever()
+                except Exception as e:
+                    logger.error(f"Ошибка запуска HTTP сервера: {e}")
+                    raise
             
             # Запуск сервера в отдельном потоке
             server_thread = threading.Thread(target=run_server, daemon=True)
             server_thread.start()
+            
+            # Ждем немного, чтобы сервер успел запуститься
+            time.sleep(2)
+            logger.info("HTTP сервер должен быть готов к приему запросов")
             
             return server_thread
         except Exception as e:

@@ -1,0 +1,15 @@
+# Временный Dockerfile для тестирования минимального HTTP сервера
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Копируем только минимальный сервер
+COPY minimal_server.py .
+
+# Создаем пользователя для безопасности
+RUN useradd --create-home --shell /bin/bash app
+USER app
+
+EXPOSE 8000
+
+CMD ["python", "minimal_server.py"]
