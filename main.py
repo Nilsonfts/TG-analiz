@@ -123,8 +123,15 @@ async def start_telegram_bot():
             
             db = Database(config.database_url)
             await db.init_db()
-            reports = ReportGenerator(db)
             logger.info("✅ База данных подключена и инициализирована")
+            
+            # Создаем генератор отчетов если БД работает
+            try:
+                reports = ReportGenerator(db)
+                logger.info("✅ Система отчетов инициализирована")
+            except Exception as reports_error:
+                logger.warning(f"⚠️  Ошибка инициализации отчетов: {reports_error}")
+                
         except Exception as e:
             logger.warning(f"⚠️  База данных недоступна: {e}")
             logger.warning(f"Тип ошибки: {type(e).__name__}")
