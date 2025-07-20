@@ -1,41 +1,195 @@
 #!/usr/bin/env python3
 """
-TG-analiz Bot для Railway - УПРОЩЕННАЯ РАБОЧАЯ ВЕРСИЯ
+СУПЕР-ПРОСТОЙ HTTP бот для Railway (без telegram библиотеки)
 """
 import asyncio
 import json
 import logging
 import os
-import threading
+import sys
+import urllib.request
+import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Переменные окружения
 PORT = int(os.getenv("PORT", "8080"))
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
-# Health Check Handler (ОБЯЗАТЕЛЬНО для Railway)
-class HealthHandler(BaseHTTPRequestHandler):
+logger.info("🚀 СУПЕР-ПРОСТОЙ БОТ СТАРТ!")
+logger.info(f"PORT: {PORT}")
+logger.info(f"BOT_TOKEN: {'ДА' if BOT_TOKEN else 'НЕТ'}")
+
+class SimpleBot:
+    def __init__(self, token):
+        self.token = token
+        self.api_url = f"https://api.telegram.org/bot{token}"
+    
+    def send_message(self, chat_id, text):
+        try:
+            data = {
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': 'HTML'
+            }
+            
+            post_data = urllib.parse.urlencode(data).encode()
+            req = urllib.request.Request(
+                f"{self.api_url}/sendMessage",
+                data=post_data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode())
+                logger.info(f"✅ Message sent: {result.get('ok', False)}")
+                return result
+                
+        except Exception as e:
+            logger.error(f"❌ Send error: {e}")
+            return None
+    
+    def get_updates(self, offset=None):
+        try:
+            url = f"{self.api_url}/getUpdates"
+            if offset:
+                url += f"?offset={offset}"
+            
+            with urllib.request.urlopen(url, timeout=10) as response:
+                result = json.loads(response.read().decode())
+                return result.get('result', [])
+                
+        except Exception as e:
+            logger.error(f"❌ Updates error: {e}")
+            return []
+
+class BotHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
     
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        
-        response = {
-            "status": "ok", 
-            "healthy": True, 
-            "service": "tg-analiz-bot",
-            "bot_token_set": bool(BOT_TOKEN),
-            "version": "production"
-        }
-        self.wfile.write(json.dumps(response).encode())
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            
+            data = {
+                "status": "ok", 
+                "healthy": True, 
+                "bot": "simple",
+                "token_set": bool(BOT_TOKEN)
+            }
+            self.wfile.write(json.dumps(data, indent=2).encode())
+            
+        elif self.path == '/test':
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            
+            html = """
+            <h1>🤖 TG-analiz Bot Test</h1>
+            <p>✅ Health server работает</p>
+            <p>✅ Railway деплой успешен</p>
+            <p>✅ Порт настроен правильно</p>
+            <h2>Инструкции:</h2>
+            <ol>
+                <li>Удалите webhook: <a href="https://api.telegram.org/bot{}/deleteWebhook" target="_blank">Удалить</a></li>
+                <li>Отправьте боту /start</li>
+                <li>Если не работает - проблема в токене</li>
+            </ol>
+            """.format(BOT_TOKEN if BOT_TOKEN else "YOUR_TOKEN")
+            
+            self.wfile.write(html.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+async def bot_polling():
+    if not BOT_TOKEN:
+        logger.error("❌ NO BOT_TOKEN - только health сервер")
+        return
+    
+    bot = SimpleBot(BOT_TOKEN)
+    offset = None
+    
+    logger.info("🤖 POLLING START - проверяем сообщения...")
+    
+    while True:
+        try:
+            updates = bot.get_updates(offset)
+            
+            for update in updates:
+                offset = update['update_id'] + 1
+                
+                if 'message' in update:
+                    message = update['message']
+                    chat_id = message['chat']['id']
+                    text = message.get('text', '')
+                    user_id = message['from']['id']
+                    
+                    logger.info(f"📨 Сообщение от {user_id}: {text}")
+                    
+                    if text == '/start':
+                        response = (
+                            "🎉 <b>СУПЕР-ПРОСТОЙ БОТ РАБОТАЕТ!</b>\n\n"
+                            "✅ Railway деплой: ОК\n"
+                            "✅ HTTP сервер: ОК\n"
+                            "✅ Telegram API: ОК\n"
+                            "✅ Polling: ОК\n\n"
+                            f"👤 Ваш ID: {user_id}\n"
+                            f"💬 Чат ID: {chat_id}\n\n"
+                            "🚀 <b>ПРОБЛЕМА РЕШЕНА!</b>"
+                        )
+                        bot.send_message(chat_id, response)
+                        
+                    elif text == '/test':
+                        response = (
+                            "🧪 <b>ТЕСТ УСПЕШЕН!</b>\n\n"
+                            "✅ Бот отвечает мгновенно\n"
+                            "✅ HTTP polling работает\n"
+                            "✅ Railway стабилен\n\n"
+                            "🎯 <b>ВСЕ ОТЛИЧНО!</b>"
+                        )
+                        bot.send_message(chat_id, response)
+                        
+                    elif text == '/help':
+                        response = (
+                            "📋 <b>Команды:</b>\n\n"
+                            "• /start - Проверка работы\n"
+                            "• /test - Тестовая команда\n"
+                            "• /help - Эта справка\n\n"
+                            "✅ <b>Все команды работают!</b>"
+                        )
+                        bot.send_message(chat_id, response)
+            
+            await asyncio.sleep(1)  # Пауза между запросами
+            
+        except Exception as e:
+            logger.error(f"❌ Polling error: {e}")
+            await asyncio.sleep(5)
+
+async def main():
+    logger.info("🚀 ЗАПУСК ГЛАВНОЙ ФУНКЦИИ")
+    
+    # HTTP сервер в фоне
+    import threading
+    server = HTTPServer(("0.0.0.0", PORT), BotHandler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    logger.info(f"🌐 HTTP сервер запущен на порту {PORT}")
+    
+    # Telegram polling
+    await bot_polling()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("⛔ Остановлено")
+    except Exception as e:
+        logger.error(f"💥 ОШИБКА: {e}")
+        sys.exit(1)
 
 def start_health_server():
     """Запуск health check сервера"""
