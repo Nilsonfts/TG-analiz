@@ -31,12 +31,18 @@ class Database:
         self.database_url = database_url
         self.pool = None
     
+    def _check_pool(self):
+        """Проверка доступности пула подключений"""
+        if not self.pool:
+            raise RuntimeError("База данных не инициализирована или пул подключений недоступен")
+    
     async def init_db(self):
         """Инициализация базы данных"""
         try:
             logger.info(f"Попытка подключения к базе данных...")
             logger.info(f"DATABASE_URL начинается с: {self.database_url[:20]}...")
             
+            # Сначала создаем пул
             self.pool = await asyncpg.create_pool(
                 self.database_url,
                 min_size=1,
@@ -45,8 +51,15 @@ class Database:
             )
             
             logger.info("✅ Пул подключений создан успешно")
-            await self.create_tables()
-            logger.info("✅ База данных успешно инициализирована")
+            
+            # Затем создаем таблицы
+            try:
+                await self.create_tables()
+                logger.info("✅ База данных успешно инициализирована")
+            except Exception as table_error:
+                logger.warning(f"⚠️  Ошибка создания таблиц: {table_error}")
+                # Пул остается рабочим, но таблицы могут быть не созданы
+                
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации базы данных: {e}")
             logger.error(f"Тип ошибки: {type(e).__name__}")
@@ -237,21 +250,32 @@ class Database:
     
     async def save_user(self, user_id: int, username: str = None):
         """Сохранение пользователя в базе данных"""
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
-                INSERT INTO telegram_users (user_id, username, first_seen)
-                VALUES ($1, $2, CURRENT_TIMESTAMP)
-                ON CONFLICT (user_id) 
-                DO UPDATE SET 
-                    username = EXCLUDED.username,
-                    last_seen = CURRENT_TIMESTAMP
-            ''', user_id, username)
+        try:
+            self._check_pool()
+            async with self.pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO telegram_users (user_id, username, first_seen)
+                    VALUES ($1, $2, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id) 
+                    DO UPDATE SET 
+                        username = EXCLUDED.username,
+                        last_seen = CURRENT_TIMESTAMP
+                ''', user_id, username)
+                logger.info(f"Пользователь {user_id} ({username}) сохранен успешно")
+        except Exception as e:
+            logger.error(f"Ошибка сохранения пользователя {user_id}: {e}")
+            raise
     
     async def get_users_count(self) -> int:
         """Получение количества пользователей"""
-        async with self.pool.acquire() as conn:
-            result = await conn.fetchval('SELECT COUNT(*) FROM telegram_users')
-            return result or 0
+        try:
+            self._check_pool()
+            async with self.pool.acquire() as conn:
+                result = await conn.fetchval('SELECT COUNT(*) FROM telegram_users')
+                return result or 0
+        except Exception as e:
+            logger.error(f"Ошибка получения количества пользователей: {e}")
+            return 0
     
     async def get_recent_users(self, limit: int = 10) -> List[Dict]:
         """Получение последних пользователей"""
