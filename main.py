@@ -557,17 +557,16 @@ async def start_telegram_bot():
                         masked = value[:30] + '...' if len(value) > 30 else value
                     db_vars[var] = masked
             
-            test_info = f"""
-🔧 **Тест базы данных**
+            test_info = f"""🔧 Тест базы данных
 
-**Найденные переменные:**
+Найденные переменные:
 {chr(10).join([f'• {k}: {v}' for k, v in db_vars.items()]) if db_vars else '• Переменные БД не найдены'}
 
-**Текущая конфигурация:**
+Текущая конфигурация:
 • Используется: {config.database_url[:30] + '...' if config.database_url else 'Не установлен'}
 • Содержит localhost: {'Да' if config.database_url and ('localhost' in config.database_url or '127.0.0.1' in config.database_url) else 'Нет'}
 
-**Попытка собрать внешний URL:**"""
+Попытка собрать внешний URL:"""
 
             # Пытаемся собрать внешний URL из компонентов
             pguser = os.getenv('PGUSER')
@@ -582,24 +581,24 @@ async def start_telegram_bot():
 • MANUAL_URL: {manual_url[:50]}...
 • Содержит localhost: {'Да' if 'localhost' in manual_url else 'Нет'}
 
-**Рекомендация:**
+Рекомендация:
 {'Используйте собранный URL выше' if 'localhost' not in manual_url else 'Добавьте DATABASE_PUBLIC_URL с внешним адресом PostgreSQL'}
 """
             else:
                 test_info += f"""
 
-**Компоненты для сборки URL:**
+Компоненты для сборки URL:
 • PGUSER: {'✅' if pguser else '❌'}
 • POSTGRES_PASSWORD: {'✅' if pgpass else '❌'}
 • RAILWAY_TCP_PROXY_DOMAIN: {'✅' if pghost else '❌'}
 • RAILWAY_TCP_PROXY_PORT: {'✅' if pgport else '❌'}  
 • PGDATABASE: {'✅' if pgdb else '❌'}
 
-**Рекомендация:**
+Рекомендация:
 Добавьте DATABASE_PUBLIC_URL с внешним адресом PostgreSQL
 """
             
-            await update.message.reply_text(test_info, parse_mode='Markdown')
+            await update.message.reply_text(test_info)
 
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
