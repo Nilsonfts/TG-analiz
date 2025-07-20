@@ -14,7 +14,13 @@ sys.path.append(os.path.dirname(__file__))
 
 from channel_analytics import ChannelAnalytics
 from database import Database
-from config import DB_CONFIG
+from config import Config
+
+# Создаем экземпляр конфигурации
+config = Config()
+DB_CONFIG = {
+    'database_url': config.database_url
+}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
