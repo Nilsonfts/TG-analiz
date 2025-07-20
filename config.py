@@ -19,7 +19,8 @@ class Config:
         self.api_hash = os.getenv('API_HASH')
         
         # База данных (опционально для начала)
-        self.database_url = os.getenv('DATABASE_URL', 'postgresql://localhost/tg_analytics')
+        # Используем DATABASE_PUBLIC_URL для внешнего подключения, или DATABASE_URL для внутреннего
+        self.database_url = os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL', 'postgresql://localhost/tg_analytics')
         
         # Railway фикс: заменяем postgres:// на postgresql://
         if self.database_url and self.database_url.startswith('postgres://'):
