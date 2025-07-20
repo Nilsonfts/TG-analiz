@@ -18,6 +18,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 # Наши модули
 from visualization import ChartGenerator
+from alerts import AlertSystem
 
 # Настройка логирования
 logging.basicConfig(
@@ -241,12 +242,14 @@ async def start_telegram_bot():
 **👑 Админские команды:**
 • /groupinfo - информация о группе
 • /addgroup [ID] - добавить группу в мониторинг
+• /alerts - проверить алерты системы мониторинга
 • /debug - диагностика системы
 • /testdb - тест базы данных
 
-**ℹ️ Автоматические отчёты:**
-📅 Дневные: каждый день в 09:00
-📅 Недельные: каждый понедельник в 09:00
+**ℹ️ Автоматические процессы:**
+📅 Дневные отчёты: каждый день в 09:00
+📅 Недельные отчёты: каждый понедельник в 09:00
+🚨 Проверка алертов: каждые 30 минут
 
 Добавьте бота в группу как администратора для начала мониторинга!
             """
@@ -805,6 +808,44 @@ async def start_telegram_bot():
                 logger.error(f"Ошибка генерации дашборда: {e}")
                 await update.message.reply_text(f"❌ Ошибка генерации дашборда: {e}")
 
+        async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Команда для проверки алертов вручную"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            await update.message.reply_text("🚨 Проверяю алерты...")
+            
+            try:
+                alert_system = AlertSystem(db, app.bot)
+                alerts = await alert_system.check_all_groups()
+                
+                if alerts:
+                    response = f"🚨 **НАЙДЕНО {len(alerts)} АЛЕРТОВ:**\n\n"
+                    for i, alert in enumerate(alerts, 1):
+                        response += f"{i}. **{alert.alert_type.upper()}**\n"
+                        response += f"   Группа: {alert.group_name}\n"
+                        response += f"   {alert.message}\n\n"
+                        if len(response) > 3500:  # Telegram limit
+                            await update.message.reply_text(response, parse_mode='Markdown')
+                            response = "**Продолжение алертов:**\n\n"
+                    
+                    if len(response.strip()) > len("**Продолжение алертов:**"):
+                        await update.message.reply_text(response, parse_mode='Markdown')
+                else:
+                    await update.message.reply_text("✅ Алертов не найдено - всё в порядке!")
+                
+            except Exception as e:
+                logger.error(f"Ошибка проверки алертов: {e}")
+                await update.message.reply_text(f"❌ Ошибка проверки алертов: {e}")
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -825,6 +866,7 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("charts", charts_command))
         app.add_handler(CommandHandler("trend", trend_command))
         app.add_handler(CommandHandler("dashboard", dashboard_command))
+        app.add_handler(CommandHandler("alerts", alerts_command))
         
         # Обработчик сообщений в группах
         async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -885,6 +927,9 @@ async def start_telegram_bot():
         # Настройка планировщика
         if db and reports:
             try:
+                # Создаём систему алертов
+                alert_system = AlertSystem(db, app.bot)
+                
                 # Функции для автоматических отчетов
                 def send_daily_reports():
                     asyncio.create_task(send_scheduled_reports(app, db, reports, 'daily'))
@@ -892,17 +937,23 @@ async def start_telegram_bot():
                 def send_weekly_reports():
                     asyncio.create_task(send_scheduled_reports(app, db, reports, 'weekly'))
                 
+                # Функция для проверки алертов
+                def check_alerts():
+                    asyncio.create_task(alert_system.run_monitoring_cycle(config.admin_users))
+                
                 # Настройка расписания
                 schedule.every().day.at("09:00").do(send_daily_reports)
                 schedule.every().monday.at("09:00").do(send_weekly_reports)
+                schedule.every(30).minutes.do(check_alerts)  # Проверка алертов каждые 30 минут
                 
                 # Запуск планировщика в отдельном потоке
                 def run_scheduler():
                     nonlocal scheduler_running
                     scheduler_running = True
-                    logger.info("✅ Планировщик запущен - отчеты будут отправляться автоматически")
+                    logger.info("✅ Планировщик запущен - отчеты и алерты будут отправляться автоматически")
                     logger.info("📅 Дневные отчеты: каждый день в 09:00")
                     logger.info("📅 Недельные отчеты: каждый понедельник в 09:00")
+                    logger.info("🚨 Проверка алертов: каждые 30 минут")
                     
                     while True:
                         schedule.run_pending()
