@@ -12,7 +12,12 @@ from telethon import TelegramClient
 # Добавляем корневую директорию в путь
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database.models import get_db, TelegramGroup
+from config import Config
+from database import Database, TelegramGroup
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -30,7 +35,10 @@ class GroupManager:
             # Получение информации о группе
             entity = await self.client.get_entity(username)
             
-            db = get_db()
+            config = Config()
+            db = Database(config.database_url)
+            await db.init_db()
+            
             try:
                 # Проверка, есть ли уже такая группа
                 existing = db.query(TelegramGroup).filter(
@@ -110,6 +118,28 @@ class GroupManager:
             
         finally:
             db.close()
+
+async def add_group(group_id: str, username: str = None, title: str = None):
+    """Добавление группы для мониторинга"""
+    try:
+        config = Config()
+        db = Database(config.database_url)
+        await db.init_db()
+        
+        group = TelegramGroup(
+            group_id=int(group_id),
+            username=username,
+            title=title or f"Group {group_id}",
+            is_active=True
+        )
+        
+        await db.add_group(group)
+        logger.info(f"Группа {group_id} успешно добавлена")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении группы: {e}")
+    finally:
+        await db.close()
 
 async def main():
     """Главная функция"""
