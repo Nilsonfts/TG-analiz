@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 8000
 
 # Command to run the application
-CMD ["python", "health_server.py"]
+CMD ["python", "minimal_server.py"]
