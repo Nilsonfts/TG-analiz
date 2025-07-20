@@ -1,8 +1,9 @@
 """Test configuration for pytest."""
 
 import os
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.fixture
@@ -31,13 +32,13 @@ def mock_env_vars(mock_bot_token):
         "ADMIN_USERS": "123456789,987654321",
         "PORT": "8080",
     }
-    
+
     # Apply the mocked environment variables
     for key, value in env_vars.items():
         os.environ[key] = value
-    
+
     yield env_vars
-    
+
     # Clean up
     for key in env_vars:
         os.environ.pop(key, None)

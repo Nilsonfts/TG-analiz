@@ -1,17 +1,16 @@
-тimport asyncio
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
 import logging
+
 from channel_analytics import ChannelAnalytics
 
 logger = logging.getLogger(__name__)
 
+
 class ChannelReportService:
     """Сервис для генерации красивых отчетов каналов"""
-    
+
     def __init__(self, analytics: ChannelAnalytics):
         self.analytics = analytics
-    
+
     def format_number(self, num: int) -> str:
         """Красивое форматирование чисел"""
         if num >= 1_000_000:
@@ -19,7 +18,7 @@ class ChannelReportService:
         elif num >= 1_000:
             return f"{num/1_000:.1f}K"
         return str(num)
-    
+
     def get_growth_emoji(self, percentage: float) -> str:
         """Эмодзи для роста"""
         if percentage > 10:
@@ -32,7 +31,7 @@ class ChannelReportService:
             return "➡️"
         else:
             return "📉"
-    
+
     def get_engagement_emoji(self, percentage: float) -> str:
         """Эмодзи для вовлеченности"""
         if percentage > 80:
@@ -45,36 +44,36 @@ class ChannelReportService:
             return "⚡"
         else:
             return "💤"
-    
+
     async def generate_channel_summary_report(self, channel_id: int) -> str:
         """Генерация сводного отчета канала"""
         try:
             summary = await self.analytics.get_channel_summary(channel_id)
-            
+
             if not summary:
                 return "❌ Канал не найден или нет данных"
-            
+
             # Базовая информация
-            title = summary.get('title', 'Неизвестный канал')[:50]
-            subscribers = self.format_number(summary.get('subscribers_count', 0))
-            posts = summary.get('posts_count', 0)
-            
+            title = summary.get("title", "Неизвестный канал")[:50]
+            subscribers = self.format_number(summary.get("subscribers_count", 0))
+            posts = summary.get("posts_count", 0)
+
             # Рост подписчиков
-            growth = summary.get('subscriber_growth', 0)
-            growth_percent = summary.get('growth_percentage', 0)
+            summary.get("subscriber_growth", 0)
+            growth_percent = summary.get("growth_percentage", 0)
             growth_emoji = self.get_growth_emoji(growth_percent)
-            
+
             # Просмотры
-            total_views = self.format_number(summary.get('total_views', 0))
-            story_views = self.format_number(summary.get('story_views', 0))
-            
+            self.format_number(summary.get("total_views", 0))
+            self.format_number(summary.get("story_views", 0))
+
             # Реакции
-            reactions = summary.get('reactions_count', 0)
-            
+            summary.get("reactions_count", 0)
+
             # Уведомления
-            notifications_percent = summary.get('notifications_enabled_percent', 0)
-            notifications_emoji = self.get_engagement_emoji(notifications_percent)
-            
+            notifications_percent = summary.get("notifications_enabled_percent", 0)
+            self.get_engagement_emoji(notifications_percent)
+
             report = f"""📊 <b>СВОДНЫЙ ОТЧЁТ КАНАЛА</b>
 
 📁 <b>Канал:</b> {title}
@@ -106,33 +105,38 @@ class ChannelReportService:
 • /alerts - проверка алертов"""
 
             return report
-            
+
         except Exception as e:
             logger.error(f"Ошибка генерации сводного отчета: {e}")
             return f"❌ Ошибка генерации отчета: {e}"
-    
+
     async def generate_growth_report(self, channel_id: int) -> str:
         """Генерация отчета роста подписчиков"""
         try:
             summary = await self.analytics.get_channel_summary(channel_id)
             growth_data = await self.analytics.get_subscriber_growth_data(channel_id, 7)
-            
+
             if not summary:
                 return "❌ Канал не найден"
-            
-            title = summary.get('title', 'Неизвестный канал')[:30]
-            current_subs = summary.get('subscribers_count', 0)
-            growth = summary.get('subscriber_growth', 0)
-            growth_percent = summary.get('growth_percentage', 0)
+
+            title = summary.get("title", "Неизвестный канал")[:30]
+            current_subs = summary.get("subscribers_count", 0)
+            growth = summary.get("subscriber_growth", 0)
+            growth_percent = summary.get("growth_percentage", 0)
             growth_emoji = self.get_growth_emoji(growth_percent)
-            
+
             # Анализ тренда
             if len(growth_data) >= 2:
-                recent_trend = growth_data[-1]['subscribers_gained'] - growth_data[-2]['subscribers_gained']
-                trend_emoji = "📈" if recent_trend > 0 else "📉" if recent_trend < 0 else "➡️"
+                recent_trend = (
+                    growth_data[-1]["subscribers_gained"]
+                    - growth_data[-2]["subscribers_gained"]
+                )
+                trend_emoji = (
+                    "📈" if recent_trend > 0 else "📉" if recent_trend < 0 else "➡️"
+                )
             else:
                 trend_emoji = "➡️"
-            
+
             report = f"""📈 <b>РОСТ ПОДПИСЧИКОВ</b>
 
 📁 <b>Канал:</b> {title}
@@ -150,48 +154,48 @@ class ChannelReportService:
 
             # Добавляем данные по дням
             for day_data in growth_data[-5:]:  # Последние 5 дней
-                date = day_data['date'].strftime('%d.%m')
-                gained = day_data['subscribers_gained']
-                lost = day_data['subscribers_lost']
+                date = day_data["date"].strftime("%d.%m")
+                gained = day_data["subscribers_gained"]
+                lost = day_data["subscribers_lost"]
                 net = gained - lost
                 emoji = "✅" if net > 0 else "❌" if net < 0 else "➖"
                 report += f"\n{emoji} {date}: {net:+d} ({gained} новых, {lost} ушло)"
-            
+
             # Рекомендации
             recommendations = await self.analytics.generate_recommendations(channel_id)
-            report += f"\n\n💡 <b>РЕКОМЕНДАЦИИ:</b>"
+            report += "\n\n💡 <b>РЕКОМЕНДАЦИИ:</b>"
             for rec in recommendations[:3]:
                 report += f"\n• {rec}"
-            
-            report += f"\n\n📊 Используйте /charts для графиков роста"
-            
+
+            report += "\n\n📊 Используйте /charts для графиков роста"
+
             return report
-            
+
         except Exception as e:
             logger.error(f"Ошибка генерации отчета роста: {e}")
             return f"❌ Ошибка генерации отчета: {e}"
-    
+
     async def generate_engagement_report(self, channel_id: int) -> str:
         """Генерация отчета вовлеченности"""
         try:
             summary = await self.analytics.get_channel_summary(channel_id)
             hourly_data = await self.analytics.get_hourly_views_data(channel_id, 7)
-            
+
             if not summary:
                 return "❌ Канал не найден"
-            
-            title = summary.get('title', 'Неизвестный канал')[:30]
-            total_views = summary.get('total_views', 0)
-            story_views = summary.get('story_views', 0)
-            subscribers = summary.get('subscribers_count', 1)
-            notifications_percent = summary.get('notifications_enabled_percent', 0)
-            
+
+            title = summary.get("title", "Неизвестный канал")[:30]
+            total_views = summary.get("total_views", 0)
+            story_views = summary.get("story_views", 0)
+            subscribers = summary.get("subscribers_count", 1)
+            notifications_percent = summary.get("notifications_enabled_percent", 0)
+
             # Расчет охвата
             reach_percent = (total_views / subscribers * 100) if subscribers > 0 else 0
             reach_emoji = self.get_engagement_emoji(reach_percent)
-            
+
             notifications_emoji = self.get_engagement_emoji(notifications_percent)
-            
+
             report = f"""⚡ <b>ВОВЛЕЧЕННОСТЬ АУДИТОРИИ</b>
 
 📁 <b>Канал:</b> {title}
@@ -210,15 +214,17 @@ class ChannelReportService:
 
             # Находим топ-3 часа
             if hourly_data:
-                sorted_hours = sorted(hourly_data, key=lambda x: x['total_views'], reverse=True)
+                sorted_hours = sorted(
+                    hourly_data, key=lambda x: x["total_views"], reverse=True
+                )
                 for i, hour_data in enumerate(sorted_hours[:3], 1):
-                    hour = hour_data['hour_of_day']
-                    views = hour_data['total_views']
+                    hour = hour_data["hour_of_day"]
+                    views = hour_data["total_views"]
                     emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
                     report += f"\n{emoji} {hour:02d}:00 - {self.format_number(views)} просмотров"
             else:
-                report += f"\nДанных недостаточно"
-            
+                report += "\nДанных недостаточно"
+
             # Анализ вовлеченности
             if reach_percent > 50:
                 engagement_level = "🔥 Отличная"
@@ -228,7 +234,7 @@ class ChannelReportService:
                 engagement_level = "📢 Средняя"
             else:
                 engagement_level = "💤 Низкая"
-            
+
             report += f"""
 
 📊 <b>АНАЛИЗ:</b>
@@ -238,46 +244,46 @@ class ChannelReportService:
 
             # Рекомендации
             recommendations = await self.analytics.generate_recommendations(channel_id)
-            report += f"\n\n💡 <b>РЕКОМЕНДАЦИИ:</b>"
+            report += "\n\n💡 <b>РЕКОМЕНДАЦИИ:</b>"
             for rec in recommendations[:2]:
                 report += f"\n• {rec}"
-            
+
             return report
-            
+
         except Exception as e:
             logger.error(f"Ошибка генерации отчета вовлеченности: {e}")
             return f"❌ Ошибка генерации отчета: {e}"
-    
+
     async def generate_traffic_report(self, channel_id: int) -> str:
         """Генерация отчета источников трафика"""
         try:
             summary = await self.analytics.get_channel_summary(channel_id)
             traffic_data = await self.analytics.get_traffic_sources_data(channel_id, 30)
-            
+
             if not summary:
                 return "❌ Канал не найден"
-            
-            title = summary.get('title', 'Неизвестный канал')[:30]
-            
+
+            title = summary.get("title", "Неизвестный канал")[:30]
+
             # Эмодзи для источников
             source_emojis = {
-                'url': '🔗',
-                'search': '🔍', 
-                'groups': '👥',
-                'channels': '📢',
-                'private_chats': '💬',
-                'other': '🌐'
+                "url": "🔗",
+                "search": "🔍",
+                "groups": "👥",
+                "channels": "📢",
+                "private_chats": "💬",
+                "other": "🌐",
             }
-            
+
             source_names = {
-                'url': 'URL ссылки',
-                'search': 'Поиск',
-                'groups': 'Группы', 
-                'channels': 'Каналы',
-                'private_chats': 'Личные чаты',
-                'other': 'Другое'
+                "url": "URL ссылки",
+                "search": "Поиск",
+                "groups": "Группы",
+                "channels": "Каналы",
+                "private_chats": "Личные чаты",
+                "other": "Другое",
             }
-            
+
             report = f"""🎯 <b>ИСТОЧНИКИ ТРАФИКА</b>
 
 📁 <b>Канал:</b> {title}
@@ -286,43 +292,45 @@ class ChannelReportService:
 📊 <b>ИСТОЧНИКИ ПОДПИСЧИКОВ:</b>"""
 
             if traffic_data:
-                total_subs = sum(item['total_subscribers'] for item in traffic_data)
-                
+                total_subs = sum(item["total_subscribers"] for item in traffic_data)
+
                 for item in traffic_data:
-                    source = item['source_type']
-                    subs = item['total_subscribers']
-                    views = item['total_views']
+                    source = item["source_type"]
+                    subs = item["total_subscribers"]
+                    views = item["total_views"]
                     percentage = (subs / total_subs * 100) if total_subs > 0 else 0
-                    
-                    emoji = source_emojis.get(source, '📊')
+
+                    emoji = source_emojis.get(source, "📊")
                     name = source_names.get(source, source.title())
-                    
+
                     report += f"\n{emoji} <b>{name}:</b> {subs} ({percentage:.1f}%)"
             else:
-                report += f"\nДанных недостаточно"
-            
-            report += f"""
+                report += "\nДанных недостаточно"
+
+            report += """
 
 📈 <b>ПРОСМОТРЫ ПО ИСТОЧНИКАМ:</b>"""
 
             if traffic_data:
-                total_views = sum(item['total_views'] for item in traffic_data)
-                
+                total_views = sum(item["total_views"] for item in traffic_data)
+
                 for item in traffic_data:
-                    source = item['source_type']
-                    views = item['total_views']
+                    source = item["source_type"]
+                    views = item["total_views"]
                     percentage = (views / total_views * 100) if total_views > 0 else 0
-                    
-                    emoji = source_emojis.get(source, '📊')
+
+                    emoji = source_emojis.get(source, "📊")
                     name = source_names.get(source, source.title())
-                    
+
                     report += f"\n{emoji} {name}: {self.format_number(views)} ({percentage:.1f}%)"
-            
+
             # Анализ и рекомендации
             if traffic_data:
-                top_source = max(traffic_data, key=lambda x: x['total_subscribers'])
-                top_source_name = source_names.get(top_source['source_type'], 'Неизвестно')
-                
+                top_source = max(traffic_data, key=lambda x: x["total_subscribers"])
+                top_source_name = source_names.get(
+                    top_source["source_type"], "Неизвестно"
+                )
+
                 report += f"""
 
 🔍 <b>АНАЛИЗ:</b>
@@ -333,34 +341,36 @@ class ChannelReportService:
 💡 <b>РЕКОМЕНДАЦИИ:</b>"""
 
                 if len(traffic_data) <= 2:
-                    report += f"\n• 🎯 Диверсифицируйте источники трафика"
-                    report += f"\n• 📢 Развивайте партнерства с другими каналами"
+                    report += "\n• 🎯 Диверсифицируйте источники трафика"
+                    report += "\n• 📢 Развивайте партнерства с другими каналами"
                 else:
-                    report += f"\n• ✅ Хорошее разнообразие источников"
-                    report += f"\n• 🚀 Усиливайте работу с топ-источником: {top_source_name}"
-            
+                    report += "\n• ✅ Хорошее разнообразие источников"
+                    report += (
+                        f"\n• 🚀 Усиливайте работу с топ-источником: {top_source_name}"
+                    )
+
             return report
-            
+
         except Exception as e:
             logger.error(f"Ошибка генерации отчета трафика: {e}")
             return f"❌ Ошибка генерации отчета: {e}"
-    
+
     async def generate_recommendations_report(self, channel_id: int) -> str:
         """Генерация отчета с AI-рекомендациями"""
         try:
             summary = await self.analytics.get_channel_summary(channel_id)
             recommendations = await self.analytics.generate_recommendations(channel_id)
-            
+
             if not summary:
                 return "❌ Канал не найден"
-            
-            title = summary.get('title', 'Неизвестный канал')[:30]
-            
+
+            title = summary.get("title", "Неизвестный канал")[:30]
+
             # Анализ текущего состояния
-            growth = summary.get('growth_percentage', 0)
-            notifications = summary.get('notifications_enabled_percent', 0)
-            subscribers = summary.get('subscribers_count', 0)
-            
+            growth = summary.get("growth_percentage", 0)
+            notifications = summary.get("notifications_enabled_percent", 0)
+            subscribers = summary.get("subscribers_count", 0)
+
             # Определение уровня канала
             if subscribers > 100000:
                 level = "🏆 Крупный канал"
@@ -370,7 +380,7 @@ class ChannelReportService:
                 level = "📈 Растущий канал"
             else:
                 level = "🌱 Новый канал"
-            
+
             report = f"""🤖 <b>AI-РЕКОМЕНДАЦИИ</b>
 
 📁 <b>Канал:</b> {title}
@@ -386,23 +396,23 @@ class ChannelReportService:
 
             for i, rec in enumerate(recommendations, 1):
                 report += f"\n{i}. {rec}"
-            
+
             # Дополнительные советы по уровню канала
-            report += f"\n\n🎓 <b>СТРАТЕГИЧЕСКИЕ СОВЕТЫ:</b>"
-            
+            report += "\n\n🎓 <b>СТРАТЕГИЧЕСКИЕ СОВЕТЫ:</b>"
+
             if subscribers < 1000:
-                report += f"\n• 🎯 Определите нишу и целевую аудиторию"
-                report += f"\n• 📝 Создавайте регулярный контент-план"
-                report += f"\n• 🤝 Ищите партнерства с похожими каналами"
+                report += "\n• 🎯 Определите нишу и целевую аудиторию"
+                report += "\n• 📝 Создавайте регулярный контент-план"
+                report += "\n• 🤝 Ищите партнерства с похожими каналами"
             elif subscribers < 10000:
-                report += f"\n• 📊 Анализируйте лучшие посты и повторяйте успех"
-                report += f"\n• 🎬 Экспериментируйте с разными форматами"
-                report += f"\n• 💬 Активно взаимодействуйте с аудиторией"
+                report += "\n• 📊 Анализируйте лучшие посты и повторяйте успех"
+                report += "\n• 🎬 Экспериментируйте с разными форматами"
+                report += "\n• 💬 Активно взаимодействуйте с аудиторией"
             else:
-                report += f"\n• 🚀 Масштабируйте успешные стратегии"
-                report += f"\n• 📈 Оптимизируйте монетизацию"
-                report += f"\n• 🌐 Развивайте экосистему вокруг канала"
-            
+                report += "\n• 🚀 Масштабируйте успешные стратегии"
+                report += "\n• 📈 Оптимизируйте монетизацию"
+                report += "\n• 🌐 Развивайте экосистему вокруг канала"
+
             # Следующие шаги
             report += f"""
 
@@ -415,7 +425,7 @@ class ChannelReportService:
 ⏰ <b>Рекомендуемая частота анализа:</b> {"Ежедневно" if subscribers > 50000 else "2-3 раза в неделю" if subscribers > 5000 else "Еженедельно"}"""
 
             return report
-            
+
         except Exception as e:
             logger.error(f"Ошибка генерации отчета рекомендаций: {e}")
             return f"❌ Ошибка генерации отчета: {e}"
