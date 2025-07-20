@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     testing: bool = Field(default=False, description="Enable testing mode")
     
     # Railway Configuration
-    port: int = Field(default=8080, description="HTTP server port")
+    port: int = Field(default=int(os.getenv("PORT", "8080")), description="HTTP server port")
     
     class Config:
         env_file = ".env"
