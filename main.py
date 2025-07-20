@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram Analytics Bot - Шаг 2: Базовые команды + HTTP сервер + База данных
+Telegram Analytics Bot - Шаг 3: HTTP сервер + База данных + Аналитика и отчеты
 """
 import os
 import http.server
@@ -56,6 +56,7 @@ async def start_telegram_bot():
         from telegram.ext import ContextTypes
         from config import Config
         from database import Database
+        from reports import ReportGenerator
         
         logger.info("Инициализация Telegram бота...")
         
@@ -70,10 +71,12 @@ async def start_telegram_bot():
         
         # Инициализация базы данных
         db = None
+        reports = None
         try:
             logger.info("Подключение к базе данных...")
             db = Database(config.database_url)
             await db.init_db()
+            reports = ReportGenerator(db)
             logger.info("✅ База данных подключена и инициализирована")
         except Exception as e:
             logger.warning(f"⚠️  База данных недоступна: {e}")
@@ -105,13 +108,16 @@ async def start_telegram_bot():
 /status - статус бота
 /ping - проверка связи
 /users - количество пользователей (если БД работает)
+/daily - дневной отчет
+/weekly - недельный отчет
+/demo - демо отчет с тестовыми данными
 
-🔧 Статус: **С базой данных** (Шаг 2/4)
+🔧 Статус: **С аналитикой** (Шаг 3/4)
 ✅ HTTP сервер работает
 ✅ Telegram бот подключен
 {'✅ База данных подключена' if db else '⚠️  База данных недоступна'}
-⏳ Аналитика - следующий шаг
-⏳ Планировщик - в планах
+{'✅ Отчеты доступны' if reports else '⚠️  Отчеты недоступны'}
+⏳ Планировщик - следующий шаг
             """
             
             await update.message.reply_text(welcome_text, parse_mode='Markdown')
@@ -123,6 +129,7 @@ async def start_telegram_bot():
         async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Проверяем статус БД
             db_status = "✅ Подключена" if db else "❌ Недоступна"
+            reports_status = "✅ Доступны" if reports else "❌ Недоступны"
             users_count = 0
             
             if db:
@@ -139,10 +146,10 @@ async def start_telegram_bot():
 ✅ Telegram API: Подключен  
 ✅ Railway деплой: Активен
 {db_status.split()[0]} База данных: {db_status}
-⏳ Аналитика: Не активна
+{reports_status.split()[0]} Отчеты: {reports_status}
 ⏳ Планировщик: Не запущен
 
-🏗️ **Текущая стадия**: База данных (2/4)
+🏗️ **Текущая стадия**: Аналитика и отчеты (3/4)
 📊 **Пользователей в системе**: {users_count}
             """
             await update.message.reply_text(status_text, parse_mode='Markdown')
@@ -169,12 +176,75 @@ async def start_telegram_bot():
             except Exception as e:
                 await update.message.reply_text(f"❌ Ошибка получения данных: {e}")
 
+        async def daily_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not reports:
+                await update.message.reply_text("❌ Система отчетов недоступна")
+                return
+            
+            try:
+                await update.message.reply_text("📊 Генерирую дневной отчет...")
+                report = await reports.generate_daily_report()
+                await update.message.reply_text(report, parse_mode='HTML')
+            except Exception as e:
+                logger.error(f"Ошибка генерации дневного отчета: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
+
+        async def weekly_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not reports:
+                await update.message.reply_text("❌ Система отчетов недоступна")
+                return
+            
+            try:
+                await update.message.reply_text("📈 Генерирую недельный отчет...")
+                report = await reports.generate_weekly_report()
+                await update.message.reply_text(report, parse_mode='HTML')
+            except Exception as e:
+                logger.error(f"Ошибка генерации недельного отчета: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации отчета: {e}")
+
+        async def demo_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Демо отчет с тестовыми данными"""
+            demo_report = """
+📊 <b>ДЕМО ОТЧЕТ - Дневная аналитика</b>
+
+📅 <b>Дата:</b> 20 июля 2025
+🕐 <b>Период:</b> Последние 24 часа
+
+📈 <b>ОБЩАЯ СТАТИСТИКА:</b>
+💬 Сообщений: 1,247 (+15%)
+👥 Активных пользователей: 89 (+8%)
+📋 Новых участников: 5
+🔗 Пересланных сообщений: 23
+
+🏆 <b>ТОП АКТИВНОСТИ:</b>
+🥇 @user1 - 47 сообщений
+🥈 @user2 - 32 сообщения  
+🥉 @user3 - 28 сообщений
+
+⏰ <b>АКТИВНОСТЬ ПО ЧАСАМ:</b>
+🌅 06:00-12:00: 287 сообщений
+🌞 12:00-18:00: 456 сообщений (пик)
+🌙 18:00-00:00: 398 сообщений
+🌃 00:00-06:00: 106 сообщений
+
+📊 <b>ТИПЫ КОНТЕНТА:</b>
+💬 Текст: 89% (1,110 сообщений)
+🖼 Медиа: 8% (97 сообщений)
+📎 Файлы: 3% (40 сообщений)
+
+✨ <i>Это демо версия. Реальные данные будут доступны после настройки мониторинга групп.</i>
+            """
+            await update.message.reply_text(demo_report, parse_mode='HTML')
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
         app.add_handler(CommandHandler("status", status_command))
         app.add_handler(CommandHandler("ping", ping_command))
         app.add_handler(CommandHandler("users", users_command))
+        app.add_handler(CommandHandler("daily", daily_report_command))
+        app.add_handler(CommandHandler("weekly", weekly_report_command))
+        app.add_handler(CommandHandler("demo", demo_report_command))
         
         # Запуск бота
         await app.initialize()
@@ -200,7 +270,7 @@ async def start_telegram_bot():
 
 async def main():
     """Главная функция"""
-    logger.info("=== 🚀 Запуск Telegram Analytics Bot (Шаг 2/4) ===")
+    logger.info("=== 🚀 Запуск Telegram Analytics Bot (Шаг 3/4) ===")
     
     # 1. HTTP сервер ПЕРВЫМ (критично для Railway)
     start_health_server()
