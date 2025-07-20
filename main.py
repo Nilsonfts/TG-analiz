@@ -400,7 +400,7 @@ async def start_telegram_bot():
             user_id = update.effective_user.id
             
             # Проверяем, что пользователь администратор бота
-            if str(user_id) not in config.admin_users:
+            if user_id not in config.admin_users:
                 await update.message.reply_text("❌ Только администраторы бота могут добавлять группы!")
                 return
             
