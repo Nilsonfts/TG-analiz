@@ -8,8 +8,8 @@ from telegram.ext import ContextTypes
 import schedule
 import time
 import threading
-from aiohttp import web
-import aiohttp_cors
+import http.server
+import socketserver
 
 from config import Config
 from database import Database, TelegramGroup, UserSubscription
@@ -178,52 +178,54 @@ class TelegramAnalyticsBot:
             schedule.run_pending()
             time.sleep(60)
 
-    async def health_check(self, request):
-        """Health check endpoint для Railway"""
-        return web.json_response({
-            'status': 'healthy',
-            'timestamp': datetime.now().isoformat(),
-            'bot_running': True
-        })
-
-    async def root_handler(self, request):
-        """Root endpoint"""
-        return web.Response(text="Telegram Analytics Bot is running")
-
-    async def start_web_server(self):
+    def start_web_server(self):
         """Запуск веб-сервера для health checks"""
-        app = web.Application()
-        
-        # Настройка CORS
-        cors = aiohttp_cors.setup(app, defaults={
-            "*": aiohttp_cors.ResourceOptions(
-                allow_credentials=True,
-                expose_headers="*",
-                allow_headers="*",
-                allow_methods="*"
-            )
-        })
-        
-        # Добавление маршрутов
-        app.router.add_get('/', self.root_handler)
-        app.router.add_get('/health', self.health_check)
-        
-        # Применение CORS
-        for route in list(app.router.routes()):
-            cors.add(route)
-        
-        # Запуск сервера
-        port = int(os.getenv('PORT', 8000))
-        self.web_runner = web.AppRunner(app)
-        await self.web_runner.setup()
-        site = web.TCPSite(self.web_runner, '0.0.0.0', port)
-        await site.start()
-        logger.info(f"HTTP сервер запущен на порту {port}")
-        return self.web_runner
+        try:
+            port = int(os.getenv('PORT', 8000))
+            
+            class HealthHandler(http.server.SimpleHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == '/health':
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/plain')
+                        self.end_headers()
+                        self.wfile.write(b'OK')
+                    elif self.path == '/':
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/plain')
+                        self.end_headers()
+                        self.wfile.write(b'Telegram Analytics Bot is running')
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                
+                def log_message(self, format, *args):
+                    # Подавляем логи HTTP сервера
+                    pass
+
+            def run_server():
+                with socketserver.TCPServer(('', port), HealthHandler) as httpd:
+                    logger.info(f"HTTP сервер запущен на порту {port}")
+                    httpd.serve_forever()
+            
+            # Запуск сервера в отдельном потоке
+            server_thread = threading.Thread(target=run_server, daemon=True)
+            server_thread.start()
+            
+            return server_thread
+        except Exception as e:
+            logger.error(f"Ошибка запуска веб-сервера: {e}")
+            raise
 
     async def run(self):
         """Основной метод запуска бота"""
         try:
+            logger.info("Запуск приложения...")
+            
+            # Запуск веб-сервера ПЕРВЫМ
+            self.start_web_server()
+            logger.info("Веб-сервер запущен")
+            
             # Инициализация базы данных
             await self.db.init_db()
             logger.info("База данных инициализирована")
@@ -251,10 +253,7 @@ class TelegramAnalyticsBot:
             scheduler_thread.start()
             logger.info("Планировщик запущен")
             
-            # Запуск веб-сервера
-            await self.start_web_server()
-            
-            # Запуск бота
+            # Запуск бота (НЕ блокирующий)
             await self.app.initialize()
             await self.app.start()
             await self.app.updater.start_polling()
@@ -263,11 +262,12 @@ class TelegramAnalyticsBot:
             
             # Поддержание работы
             while True:
-                await asyncio.sleep(1)
+                await asyncio.sleep(10)
                 
         except Exception as e:
             logger.error(f"Критическая ошибка: {e}")
-            raise
+            # НЕ re-raise, чтобы процесс не падал
+            # raise
 
     async def shutdown(self):
         """Корректное завершение работы бота"""
