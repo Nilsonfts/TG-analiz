@@ -19,6 +19,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 # Наши модули
 from visualization import ChartGenerator
 from alerts import AlertSystem
+from data_export import DataExporter
 
 # Настройка логирования
 logging.basicConfig(
@@ -228,12 +229,14 @@ async def start_telegram_bot():
 • /users - статистика пользователей  
 • /daily - дневной отчёт
 • /weekly - недельный отчёт
+• /summary - сводный аналитический отчёт
 • /demo - демо отчёт
 
 **📈 Графики и аналитика:**
 • /charts - графики активности по часам и топ пользователи
 • /trend - график динамики за 30 дней
 • /dashboard - сводная аналитическая панель
+• /export [messages|users|analytics|full] - экспорт данных в CSV
 
 **🔔 Подписки:**
 • /subscribe [daily|weekly] - подписаться на автоотчёты
@@ -846,6 +849,185 @@ async def start_telegram_bot():
                 logger.error(f"Ошибка проверки алертов: {e}")
                 await update.message.reply_text(f"❌ Ошибка проверки алертов: {e}")
 
+        async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Команда для экспорта данных в CSV"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            # Получаем параметр (тип экспорта)
+            args = context.args
+            export_type = args[0] if args else "full"
+            
+            await update.message.reply_text("📥 Экспортирую данные...")
+            
+            try:
+                # Получаем активные группы
+                groups = await db.get_active_groups()
+                if not groups:
+                    await update.message.reply_text("❌ Нет активных групп для экспорта")
+                    return
+                
+                group = groups[0]  # Берём первую группу
+                exporter = DataExporter(db)
+                
+                if export_type == "messages":
+                    # Экспорт сообщений
+                    csv_buffer = await exporter.export_messages_csv(group.group_id, 30)
+                    if csv_buffer:
+                        filename = f"{exporter.sanitize_filename(group.title)}_messages.csv"
+                        await update.message.reply_document(
+                            document=csv_buffer,
+                            filename=filename,
+                            caption=f"📄 Экспорт сообщений за 30 дней\n🏷️ Группа: {group.title}"
+                        )
+                    else:
+                        await update.message.reply_text("❌ Ошибка экспорта сообщений")
+                
+                elif export_type == "users":
+                    # Экспорт пользователей
+                    csv_buffer = await exporter.export_users_csv(group.group_id)
+                    if csv_buffer:
+                        filename = f"{exporter.sanitize_filename(group.title)}_users.csv"
+                        await update.message.reply_document(
+                            document=csv_buffer,
+                            filename=filename,
+                            caption=f"👥 Экспорт пользователей\n🏷️ Группа: {group.title}"
+                        )
+                    else:
+                        await update.message.reply_text("❌ Ошибка экспорта пользователей")
+                
+                elif export_type == "analytics":
+                    # Экспорт аналитики
+                    csv_buffer = await exporter.export_analytics_csv(group.group_id, 30)
+                    if csv_buffer:
+                        filename = f"{exporter.sanitize_filename(group.title)}_analytics.csv"
+                        await update.message.reply_document(
+                            document=csv_buffer,
+                            filename=filename,
+                            caption=f"📊 Экспорт дневной аналитики за 30 дней\n🏷️ Группа: {group.title}"
+                        )
+                    else:
+                        await update.message.reply_text("❌ Ошибка экспорта аналитики")
+                
+                else:  # export_type == "full" или любой другой
+                    # Полный экспорт
+                    export_package = await exporter.create_full_export_package(
+                        group.group_id, 
+                        exporter.sanitize_filename(group.title)
+                    )
+                    
+                    if export_package:
+                        await update.message.reply_text(f"📦 Отправляю {len(export_package)} файлов...")
+                        
+                        for filename, file_buffer in export_package.items():
+                            try:
+                                await update.message.reply_document(
+                                    document=file_buffer,
+                                    filename=filename,
+                                    caption=f"📁 {filename}\n🏷️ Группа: {group.title}"
+                                )
+                            except Exception as file_error:
+                                logger.error(f"Ошибка отправки файла {filename}: {file_error}")
+                        
+                        await update.message.reply_text("✅ Экспорт завершён!")
+                    else:
+                        await update.message.reply_text("❌ Ошибка создания экспорта")
+                
+            except Exception as e:
+                logger.error(f"Ошибка экспорта данных: {e}")
+                await update.message.reply_text(f"❌ Ошибка экспорта: {e}")
+
+        async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Команда для получения сводного отчёта"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            await update.message.reply_text("📊 Генерирую сводный отчёт...")
+            
+            try:
+                # Получаем активные группы
+                groups = await db.get_active_groups()
+                if not groups:
+                    await update.message.reply_text("❌ Нет активных групп для анализа")
+                    return
+                
+                group = groups[0]  # Берём первую группу
+                
+                # Получаем данные
+                summary_stats = await db.get_group_summary_stats(group.group_id)
+                hourly_data = await db.get_hourly_activity(group.group_id, 7)
+                daily_stats = await db.get_daily_stats(group.group_id, datetime.now())
+                
+                # Анализ пиков активности
+                if hourly_data:
+                    peak_hours = sorted(hourly_data.items(), key=lambda x: x[1], reverse=True)[:3]
+                    peak_hours_text = ", ".join([f"{h}:00 ({c} сообщений)" for h, c in peak_hours])
+                else:
+                    peak_hours_text = "Данных недостаточно"
+                
+                # Формируем отчёт
+                report = f"""
+📊 **СВОДНЫЙ ОТЧЁТ ГРУППЫ**
+
+🏷️ **Группа:** {summary_stats.get('group_name', 'Unknown')}
+👥 **Участников:** {summary_stats.get('members_count', 0):,}
+
+📈 **ОБЩАЯ СТАТИСТИКА:**
+• Всего сообщений: {summary_stats.get('total_messages', 0):,}
+• Уникальных пользователей: {summary_stats.get('total_users', 0):,}
+• Среднее в день: {summary_stats.get('avg_daily', 0):.1f} сообщений
+
+🏆 **АКТИВНОСТЬ:**
+• Самый активный: {summary_stats.get('top_user', 'N/A')}
+• Вовлечённость: {(summary_stats.get('total_users', 0) / max(summary_stats.get('members_count', 1), 1) * 100):.1f}%
+
+⏰ **ПИКОВЫЕ ЧАСЫ:** 
+{peak_hours_text}
+
+📅 **СЕГОДНЯ:**
+• Сообщений: {daily_stats.get('messages_count', 0)}
+• Активных пользователей: {daily_stats.get('users_count', 0)}
+
+💡 **РЕКОМЕНДАЦИИ:**
+"""
+                
+                # Добавляем рекомендации на основе данных
+                avg_daily = summary_stats.get('avg_daily', 0)
+                if avg_daily < 10:
+                    report += "• 🔥 Стимулируйте обсуждения - активность низкая\n"
+                elif avg_daily > 100:
+                    report += "• 📊 Отличная активность! Поддерживайте темп\n"
+                
+                engagement = summary_stats.get('total_users', 0) / max(summary_stats.get('members_count', 1), 1) * 100
+                if engagement < 10:
+                    report += "• 👥 Низкая вовлечённость - привлекайте участников\n"
+                elif engagement > 30:
+                    report += "• 🎯 Высокая вовлечённость - отличная работа!\n"
+                
+                report += f"\n📊 **Используйте:**\n• /charts - графики\n• /export - экспорт данных\n• /alerts - проверка алертов"
+                
+                await update.message.reply_text(report, parse_mode='Markdown')
+                
+            except Exception as e:
+                logger.error(f"Ошибка генерации сводного отчёта: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации отчёта: {e}")
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -867,6 +1049,8 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("trend", trend_command))
         app.add_handler(CommandHandler("dashboard", dashboard_command))
         app.add_handler(CommandHandler("alerts", alerts_command))
+        app.add_handler(CommandHandler("export", export_command))
+        app.add_handler(CommandHandler("summary", summary_command))
         
         # Обработчик сообщений в группах
         async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
