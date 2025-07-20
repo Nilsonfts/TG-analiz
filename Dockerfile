@@ -1,15 +1,9 @@
-# Используем образ Ubuntu 20.04
-FROM ubuntu:20.04
+FROM python:3.9-slim
 
-# Устанавливаем Python и pip
+# Устанавливаем системные зависимости
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
-
-# Создаем символическую ссылку для python и pip
-RUN ln -s /usr/bin/python3 /usr/bin/python && \
-    ln -s /usr/bin/pip3 /usr/bin/pip
 
 # Устанавливаем рабочую директорию
 WORKDIR /app
@@ -18,10 +12,13 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Устанавливаем Python зависимости
-RUN --mount=type=cache,id=s/caed778b-954c-46ae-a48d-e3bfbc8beb47-/root/cache/pip,target=/root/.cache/pip pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем остальные файлы приложения
 COPY . .
+
+# Открываем порт
+EXPOSE 8000
 
 # Команда запуска
 CMD ["python", "main.py"]
