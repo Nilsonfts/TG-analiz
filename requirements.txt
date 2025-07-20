@@ -1,2 +1,4 @@
-# MINIMAL REQUIREMENTS FOR RAILWAY HEALTH CHECK
-# Только стандартные библиотеки Python
+# MINIMAL TELEGRAM BOT REQUIREMENTS для Railway
+# Только самые необходимые зависимости
+
+python-telegram-bot==20.7
