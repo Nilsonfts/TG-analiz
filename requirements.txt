@@ -1,4 +1,2 @@
-# MINIMAL TELEGRAM BOT REQUIREMENTS для Railway
-# Только самые необходимые зависимости
-
+# МИНИМАЛЬНЫЕ ЗАВИСИМОСТИ для TG-analiz (ЭКСТРЕННАЯ ВЕРСИЯ)
 python-telegram-bot==20.7
