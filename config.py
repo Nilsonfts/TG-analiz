@@ -11,18 +11,15 @@ class Config:
         # Telegram Bot
         self.bot_token = os.getenv('BOT_TOKEN')
         if not self.bot_token:
-            raise ValueError("BOT_TOKEN не найден в переменных окружения")
+            print("⚠️  BOT_TOKEN не найден в переменных окружения!")
+            print("💡 Установите переменную BOT_TOKEN для работы Telegram бота")
         
-        # Telegram API
+        # Telegram API (опционально для начала)
         self.api_id = os.getenv('API_ID')
         self.api_hash = os.getenv('API_HASH')
-        if not self.api_id or not self.api_hash:
-            raise ValueError("API_ID или API_HASH не найдены в переменных окружения")
         
-        # База данных
-        self.database_url = os.getenv('DATABASE_URL')
-        if not self.database_url:
-            raise ValueError("DATABASE_URL не найден в переменных окружения")
+        # База данных (опционально для начала)
+        self.database_url = os.getenv('DATABASE_URL', 'postgresql://localhost/tg_analytics')
         
         # Администраторы
         admin_users_str = os.getenv('ADMIN_USERS', '')
@@ -39,3 +36,7 @@ class Config:
         
         # Безопасность
         self.session_string = os.getenv('SESSION_STRING', 'bot_session')
+        
+        print(f"📋 Конфигурация загружена:")
+        print(f"   BOT_TOKEN: {'✅ Установлен' if self.bot_token else '❌ Не найден'}")
+        print(f"   ADMIN_USERS: {len(self.admin_users)} администраторов")
