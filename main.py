@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram Analytics Bot - Шаг 3: HTTP сервер + База данных + Аналитика и отчеты
+Telegram Analytics Bot - Шаг 4: ФИНАЛ - Полный функционал с планировщиком
 """
 import os
 import http.server
@@ -9,6 +9,7 @@ import logging
 import threading
 import asyncio
 import time
+import schedule
 
 # Настройка логирования
 logging.basicConfig(
@@ -48,6 +49,49 @@ def start_health_server():
     server_thread.start()
     return server_thread
 
+async def send_scheduled_reports(app, db, reports, report_type):
+    """Отправка автоматических отчетов подписчикам"""
+    try:
+        logger.info(f"Начинаю отправку {report_type} отчетов...")
+        
+        # Получаем подписчиков
+        subscribers = await db.get_subscribers(report_type)
+        if not subscribers:
+            logger.info(f"Нет подписчиков для {report_type} отчетов")
+            return
+        
+        # Генерируем отчет
+        if report_type == 'daily':
+            report = await reports.generate_daily_report()
+        elif report_type == 'weekly':
+            report = await reports.generate_weekly_report()
+        else:
+            logger.error(f"Неизвестный тип отчета: {report_type}")
+            return
+        
+        # Отправляем всем подписчикам
+        sent_count = 0
+        for user_id in subscribers:
+            try:
+                await app.bot.send_message(
+                    chat_id=user_id,
+                    text=f"📊 <b>Автоматический {report_type} отчет</b>\n\n{report}",
+                    parse_mode='HTML'
+                )
+                sent_count += 1
+                logger.info(f"Отчет отправлен пользователю {user_id}")
+                
+                # Небольшая пауза между отправками
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Ошибка отправки отчета пользователю {user_id}: {e}")
+        
+        logger.info(f"✅ {report_type} отчеты отправлены {sent_count} подписчикам")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при отправке {report_type} отчетов: {e}")
+
 async def start_telegram_bot():
     """Запуск Telegram бота с базой данных"""
     try:
@@ -72,6 +116,7 @@ async def start_telegram_bot():
         # Инициализация базы данных
         db = None
         reports = None
+        scheduler_running = False
         try:
             logger.info("Подключение к базе данных...")
             db = Database(config.database_url)
@@ -111,13 +156,15 @@ async def start_telegram_bot():
 /daily - дневной отчет
 /weekly - недельный отчет
 /demo - демо отчет с тестовыми данными
+/subscribe daily|weekly - подписаться на автоматические отчеты
+/unsubscribe daily|weekly - отписаться от отчетов
 
-🔧 Статус: **С аналитикой** (Шаг 3/4)
+🔧 Статус: **ПОЛНЫЙ ФУНКЦИОНАЛ** (Шаг 4/4)
 ✅ HTTP сервер работает
 ✅ Telegram бот подключен
 {'✅ База данных подключена' if db else '⚠️  База данных недоступна'}
 {'✅ Отчеты доступны' if reports else '⚠️  Отчеты недоступны'}
-⏳ Планировщик - следующий шаг
+{'✅ Планировщик запущен' if scheduler_running else '⏳ Планировщик настраивается'}
             """
             
             await update.message.reply_text(welcome_text, parse_mode='Markdown')
@@ -130,6 +177,7 @@ async def start_telegram_bot():
             # Проверяем статус БД
             db_status = "✅ Подключена" if db else "❌ Недоступна"
             reports_status = "✅ Доступны" if reports else "❌ Недоступны"
+            scheduler_status = "✅ Запущен" if scheduler_running else "❌ Не запущен"
             users_count = 0
             
             if db:
@@ -147,9 +195,9 @@ async def start_telegram_bot():
 ✅ Railway деплой: Активен
 {db_status.split()[0]} База данных: {db_status}
 {reports_status.split()[0]} Отчеты: {reports_status}
-⏳ Планировщик: Не запущен
+{scheduler_status.split()[0]} Планировщик: {scheduler_status}
 
-🏗️ **Текущая стадия**: Аналитика и отчеты (3/4)
+🏗️ **Текущая стадия**: ПОЛНЫЙ ФУНКЦИОНАЛ (4/4) ✅
 📊 **Пользователей в системе**: {users_count}
             """
             await update.message.reply_text(status_text, parse_mode='Markdown')
@@ -236,6 +284,64 @@ async def start_telegram_bot():
             """
             await update.message.reply_text(demo_report, parse_mode='HTML')
 
+        async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            if not context.args:
+                await update.message.reply_text("""
+📋 **Доступные подписки:**
+
+/subscribe daily - дневные отчеты (каждый день в 09:00)
+/subscribe weekly - недельные отчеты (по понедельникам в 09:00)
+
+Пример: `/subscribe daily`
+                """, parse_mode='Markdown')
+                return
+            
+            report_type = context.args[0].lower()
+            if report_type not in ['daily', 'weekly']:
+                await update.message.reply_text("❌ Доступные типы: daily, weekly")
+                return
+            
+            user_id = update.effective_user.id
+            try:
+                await db.subscribe_user(user_id, report_type)
+                await update.message.reply_text(f"✅ Вы подписались на {report_type} отчеты!")
+                logger.info(f"Пользователь {user_id} подписался на {report_type}")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Ошибка подписки: {e}")
+
+        async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if not db:
+                await update.message.reply_text("❌ База данных недоступна")
+                return
+            
+            if not context.args:
+                await update.message.reply_text("""
+📋 **Отписка от уведомлений:**
+
+/unsubscribe daily - отписаться от дневных отчетов  
+/unsubscribe weekly - отписаться от недельных отчетов
+
+Пример: `/unsubscribe daily`
+                """, parse_mode='Markdown')
+                return
+            
+            report_type = context.args[0].lower()
+            if report_type not in ['daily', 'weekly']:
+                await update.message.reply_text("❌ Доступные типы: daily, weekly")
+                return
+            
+            user_id = update.effective_user.id
+            try:
+                await db.unsubscribe_user(user_id, report_type)
+                await update.message.reply_text(f"✅ Вы отписались от {report_type} отчетов!")
+                logger.info(f"Пользователь {user_id} отписался от {report_type}")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Ошибка отписки: {e}")
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -245,6 +351,8 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("daily", daily_report_command))
         app.add_handler(CommandHandler("weekly", weekly_report_command))
         app.add_handler(CommandHandler("demo", demo_report_command))
+        app.add_handler(CommandHandler("subscribe", subscribe_command))
+        app.add_handler(CommandHandler("unsubscribe", unsubscribe_command))
         
         # Запуск бота
         await app.initialize()
@@ -252,6 +360,40 @@ async def start_telegram_bot():
         await app.updater.start_polling()
         
         logger.info("✅ Telegram бот запущен успешно!")
+        
+        # Настройка планировщика
+        if db and reports:
+            try:
+                # Функции для автоматических отчетов
+                def send_daily_reports():
+                    asyncio.create_task(send_scheduled_reports(app, db, reports, 'daily'))
+                
+                def send_weekly_reports():
+                    asyncio.create_task(send_scheduled_reports(app, db, reports, 'weekly'))
+                
+                # Настройка расписания
+                schedule.every().day.at("09:00").do(send_daily_reports)
+                schedule.every().monday.at("09:00").do(send_weekly_reports)
+                
+                # Запуск планировщика в отдельном потоке
+                def run_scheduler():
+                    nonlocal scheduler_running
+                    scheduler_running = True
+                    logger.info("✅ Планировщик запущен - отчеты будут отправляться автоматически")
+                    logger.info("📅 Дневные отчеты: каждый день в 09:00")
+                    logger.info("📅 Недельные отчеты: каждый понедельник в 09:00")
+                    
+                    while True:
+                        schedule.run_pending()
+                        time.sleep(60)
+                
+                scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+                scheduler_thread.start()
+                
+            except Exception as e:
+                logger.error(f"Ошибка настройки планировщика: {e}")
+        else:
+            logger.warning("⚠️  Планировщик не запущен (нет БД или системы отчетов)")
         
         # Поддержание работы
         while True:
@@ -270,7 +412,8 @@ async def start_telegram_bot():
 
 async def main():
     """Главная функция"""
-    logger.info("=== 🚀 Запуск Telegram Analytics Bot (Шаг 3/4) ===")
+    logger.info("=== 🚀 Запуск Telegram Analytics Bot (Шаг 4/4) ===")
+    logger.info("🎯 ФИНАЛЬНАЯ ВЕРСИЯ - Полный функционал готов!")
     
     # 1. HTTP сервер ПЕРВЫМ (критично для Railway)
     start_health_server()
