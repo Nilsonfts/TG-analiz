@@ -528,6 +528,49 @@ async def start_telegram_bot():
             
             await update.message.reply_text(debug_info, parse_mode='Markdown')
 
+        async def testdb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Тестирование подключения к базе данных"""
+            user_id = update.effective_user.id
+            
+            # Проверяем права администратора
+            if user_id not in config.admin_users:
+                await update.message.reply_text("❌ Только администраторы могут использовать эту команду!")
+                return
+            
+            # Получаем все возможные переменные БД
+            import os
+            db_vars = {}
+            possible_vars = [
+                'DATABASE_URL', 'DATABASE_PUBLIC_URL', 'POSTGRES_URL', 'POSTGRES_PUBLIC_URL',
+                'DB_URL', 'DB_PUBLIC_URL', 'RAILWAY_DATABASE_URL'
+            ]
+            
+            for var in possible_vars:
+                value = os.getenv(var)
+                if value:
+                    # Маскируем пароль для безопасности
+                    if 'postgresql://' in value and ':' in value:
+                        masked = value.split('://')[0] + '://***:***@' + value.split('@')[1] if '@' in value else value[:30] + '...'
+                    else:
+                        masked = value[:30] + '...' if len(value) > 30 else value
+                    db_vars[var] = masked
+            
+            test_info = f"""
+🔧 **Тест базы данных**
+
+**Найденные переменные:**
+{chr(10).join([f'• {k}: {v}' for k, v in db_vars.items()]) if db_vars else '• Переменные БД не найдены'}
+
+**Текущая конфигурация:**
+• Используется: {config.database_url[:30] + '...' if config.database_url else 'Не установлен'}
+• Содержит localhost: {'Да' if config.database_url and ('localhost' in config.database_url or '127.0.0.1' in config.database_url) else 'Нет'}
+
+**Рекомендация:**
+{'Добавьте DATABASE_PUBLIC_URL с внешним адресом PostgreSQL' if not db_vars.get('DATABASE_PUBLIC_URL') else 'DATABASE_PUBLIC_URL найден'}
+            """
+            
+            await update.message.reply_text(test_info, parse_mode='Markdown')
+
         # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", help_command))
@@ -542,6 +585,7 @@ async def start_telegram_bot():
         app.add_handler(CommandHandler("groupinfo", groupinfo_command))
         app.add_handler(CommandHandler("addgroup", addgroup_command))
         app.add_handler(CommandHandler("debug", debug_command))
+        app.add_handler(CommandHandler("testdb", testdb_command))
         
         # Обработчик сообщений в группах
         async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
