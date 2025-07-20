@@ -26,6 +26,13 @@ class Config:
         if self.database_url and self.database_url.startswith('postgres://'):
             self.database_url = self.database_url.replace('postgres://', 'postgresql://', 1)
         
+        # Проверка на localhost - предупреждение
+        if self.database_url and ('localhost' in self.database_url or '127.0.0.1' in self.database_url or '::1' in self.database_url):
+            print("⚠️  ВНИМАНИЕ: DATABASE_URL указывает на localhost!")
+            print("⚠️  Для Railway нужен внешний URL базы данных")
+            print("⚠️  Установите переменную DATABASE_PUBLIC_URL в Railway")
+            print(f"⚠️  Текущий URL: {self.database_url[:50]}...")
+        
         # Администраторы
         admin_users_str = os.getenv('ADMIN_USERS', '')
         self.admin_users = [int(x.strip()) for x in admin_users_str.split(',') if x.strip().isdigit()]
