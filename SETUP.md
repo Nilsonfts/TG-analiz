@@ -107,6 +107,40 @@ python main.py
 - ✅ **HTTP-сервер** для мониторинга
 - ✅ **Полная аналитика** канала
 
+## 🚨 Проблемы с деплоем?
+
+Если видите ошибки "Healthcheck failed" или "1/1 replicas never became healthy":
+
+### ⚡ Быстрое решение:
+```bash
+# Замените файлы на упрощенные версии:
+cp simple_server.py main.py
+cp Procfile.simple Procfile
+cp requirements.simple requirements.txt
+# Затем задеплойте заново
+```
+
+### 📋 Или скопируйте содержимое:
+
+**main.py** (минимальная версия):
+```python
+import os, http.server, socketserver, json
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args): pass
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{"status": "ok"}')
+
+port = int(os.environ.get("PORT", 8000))
+with socketserver.TCPServer(("", port), Handler) as httpd:
+    httpd.serve_forever()
+```
+
+💡 **Подробные инструкции:** См. файл `DEPLOY_FIX.md`
+
 ---
 
 🚀 **Команды готовы к использованию! Начните с `/start` в боте.**
