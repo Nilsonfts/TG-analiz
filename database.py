@@ -59,6 +59,20 @@ class Database:
                 )
             ''')
             
+            # Таблица пользователей
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS telegram_users (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL,
+                    username VARCHAR(255),
+                    first_name VARCHAR(255),
+                    last_name VARCHAR(255),
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT TRUE
+                )
+            ''')
+            
             # Таблица сообщений
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS messages (
@@ -209,6 +223,36 @@ class Database:
                 WHERE report_type = $1 AND is_active = TRUE
             ''', report_type)
             return [row['user_id'] for row in rows]
+    
+    async def save_user(self, user_id: int, username: str = None):
+        """Сохранение пользователя в базе данных"""
+        async with self.pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO telegram_users (user_id, username, first_seen)
+                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET 
+                    username = EXCLUDED.username,
+                    last_seen = CURRENT_TIMESTAMP
+            ''', user_id, username)
+    
+    async def get_users_count(self) -> int:
+        """Получение количества пользователей"""
+        async with self.pool.acquire() as conn:
+            result = await conn.fetchval('SELECT COUNT(*) FROM telegram_users')
+            return result or 0
+    
+    async def get_recent_users(self, limit: int = 10) -> List[Dict]:
+        """Получение последних пользователей"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT user_id, username, first_seen, last_seen 
+                FROM telegram_users 
+                ORDER BY last_seen DESC 
+                LIMIT $1
+            ''', limit)
+            
+            return [dict(row) for row in rows]
     
     async def close(self):
         """Закрытие соединений с базой данных"""
