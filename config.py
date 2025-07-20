@@ -44,4 +44,5 @@ class Config:
         
         print(f"📋 Конфигурация загружена:")
         print(f"   BOT_TOKEN: {'✅ Установлен' if self.bot_token else '❌ Не найден'}")
-        print(f"   ADMIN_USERS: {len(self.admin_users)} администраторов")
+        print(f"   ADMIN_USERS: {len(self.admin_users)} администраторов - {self.admin_users}")
+        print(f"   DATABASE_URL: {'✅ Установлен' if self.database_url else '❌ Не найден'}")

@@ -399,9 +399,14 @@ async def start_telegram_bot():
             
             user_id = update.effective_user.id
             
+            # Отладочная информация
+            logger.info(f"Команда /addgroup от пользователя {user_id}")
+            logger.info(f"Администраторы бота: {config.admin_users}")
+            
             # Проверяем, что пользователь администратор бота
             if user_id not in config.admin_users:
                 await update.message.reply_text("❌ Только администраторы бота могут добавлять группы!")
+                logger.warning(f"Пользователь {user_id} не является администратором")
                 return
             
             if not context.args:
