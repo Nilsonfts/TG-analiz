@@ -12,6 +12,9 @@ import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# Добавляем src в Python path для импорта модулей
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -151,8 +154,8 @@ class BotManager:
             # Пытаемся подключить аналитику
             analytics_available = False
             try:
-                from src.db.database_service import DatabaseService
-                from src.handlers.analytics_commands import AnalyticsCommands
+                from db.database_service import DatabaseService
+                from handlers.analytics_commands import AnalyticsCommands
                 
                 # Проверяем наличие DATABASE_URL
                 database_url = os.getenv('DATABASE_URL')
