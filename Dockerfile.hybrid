@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Копируем requirements для базовых зависимостей
+COPY requirements.txt .
+
+# Устанавливаем только критические зависимости
+RUN pip install --no-cache-dir aiogram python-dotenv requests
+
+# Копируем весь код (с graceful imports)
+COPY . .
+
+# Основная команда - гибридный бот
+CMD ["python", "hybrid_bot.py"]
