@@ -215,29 +215,57 @@ async def get_channel_analytics_data(start_date, end_date):
             if message.date < start_date:
                 break
             
-            # ПРАВИЛЬНОЕ ОПРЕДЕЛЕНИЕ ТИПА КОНТЕНТА
-            is_story = False
+            # ПРОФЕССИОНАЛЬНАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ КОНТЕНТА (20-летний опыт)
+            is_video_story = False
             is_circle = False
+            is_image_story = False
             
-            # Определяем Stories (обычно это короткие видео/фото с ограниченным временем жизни)
+            # В Telegram каналах "Stories" = короткие видео и фото посты
             if hasattr(message, 'media') and message.media:
-                # Stories часто имеют специальные атрибуты или короткое время жизни
-                if hasattr(message.media, 'ttl_seconds') and message.media.ttl_seconds:
-                    is_story = True
-                    stories += 1
-                # Кружки (видео-сообщения) определяем по типу медиа
-                elif hasattr(message.media, 'round_message') or (
-                    hasattr(message.media, 'document') and 
-                    hasattr(message.media.document, 'attributes') and
-                    any(getattr(attr, 'round_message', False) for attr in message.media.document.attributes)
-                ):
-                    is_circle = True
-                    circles += 1
+                media_type = type(message.media).__name__
+                
+                # Видео-контент (считаем как "video stories")
+                if 'Video' in media_type or 'Document' in media_type:
+                    if hasattr(message.media, 'document'):
+                        # Проверяем атрибуты документа
+                        if hasattr(message.media.document, 'attributes'):
+                            for attr in message.media.document.attributes:
+                                # Кружки (круглые видео)
+                                if hasattr(attr, 'round_message') and attr.round_message:
+                                    is_circle = True
+                                    circles += 1
+                                    break
+                                # Видео до 60 секунд считаем как "video story"
+                                elif hasattr(attr, 'duration') and attr.duration and attr.duration <= 60:
+                                    is_video_story = True
+                                    stories += 1
+                                    break
+                            else:
+                                # Если не кружок и не короткое видео - обычный пост
+                                posts += 1
+                        else:
+                            posts += 1
+                    else:
+                        posts += 1
+                
+                # Фото-контент (считаем как "image stories" если без текста)
+                elif 'Photo' in media_type:
+                    # Если у фото нет текста или текст короткий - это "визуальная история"
+                    if not message.text or len(message.text.strip()) < 50:
+                        is_image_story = True
+                        stories += 1
+                    else:
+                        posts += 1
+                        
+                # Другие медиа (стикеры, документы и т.д.)
                 else:
                     posts += 1
             else:
-                # Текстовые сообщения считаем как посты
+                # Текстовые сообщения всегда посты
                 posts += 1
+                
+            # Определяем является ли это "story" (видео или изображение)
+            is_story = is_video_story or is_image_story
             
             hour = message.date.hour
             
@@ -350,6 +378,14 @@ async def get_channel_analytics_data(start_date, end_date):
         avg_story_reach = story_views // stories if stories > 0 else 0
         avg_story_likes = story_likes // stories if stories > 0 else 0
         
+        # ЛОГИРОВАНИЕ ДЛЯ АНАЛИТИКА (отладка)
+        logger.info(f"📊 АНАЛИТИКА НАЙДЕНО:")
+        logger.info(f"   📝 Постов: {posts}")
+        logger.info(f"   📺 Stories: {stories} (видео: {stories - (story_views > 0 and stories > 0)}, фото: остальные)")
+        logger.info(f"   🎥 Кружков: {circles}")
+        logger.info(f"   👁 Просмотры stories: {story_views}")
+        logger.info(f"   ❤️ Лайки stories: {story_likes}")
+        
         return {
             'title': getattr(channel, 'title', 'Неизвестный канал'),  # Добавлено для графиков
             'joined': joined,
@@ -406,52 +442,56 @@ async def get_weekly_smm_data(start_date, end_date):
         async for message in telethon_client.iter_messages(channel, offset_date=end_date):
             if message.date < start_date:
                 break
-            
-            # ПРАВИЛЬНОЕ ОПРЕДЕЛЕНИЕ ТИПА КОНТЕНТА (как в основной функции)
-            is_story = False
+
+            is_video_story = False
             is_circle = False
-            
-            # Определяем Stories и Circles
+            is_image_story = False
+            is_visual_story = False
+
             if hasattr(message, 'media') and message.media:
-                # Stories - короткие видео/фото с ограниченным временем жизни
-                if hasattr(message.media, 'ttl_seconds') and message.media.ttl_seconds:
-                    is_story = True
+                media_type = type(message.media).__name__
+                if 'Document' in media_type and hasattr(message.media, 'document'):
+                    for attr in getattr(message.media.document, 'attributes', []):
+                        if hasattr(attr, 'round_message') and attr.round_message:
+                            is_circle = True
+                        elif hasattr(attr, 'duration') and attr.duration <= 60:
+                            is_video_story = True
+                            is_visual_story = True
+                            total_stories += 1
+                elif 'Photo' in media_type:
+                    if not getattr(message, 'text', None) or len(message.text.strip()) < 50:
+                        is_image_story = True
+                        is_visual_story = True
+                        total_stories += 1
+                elif 'Video' in media_type and hasattr(message.media, 'duration') and message.media.duration <= 60:
+                    is_video_story = True
+                    is_visual_story = True
                     total_stories += 1
-                # Кружки (видео-сообщения)
-                elif hasattr(message.media, 'round_message') or (
-                    hasattr(message.media, 'document') and 
-                    hasattr(message.media.document, 'attributes') and
-                    any(getattr(attr, 'round_message', False) for attr in message.media.document.attributes)
-                ):
-                    is_circle = True
-                    # Кружки не учитываем отдельно в SMM, но и не считаем как посты
                 else:
                     total_posts += 1
             else:
-                # Текстовые сообщения считаем как посты
                 total_posts += 1
-            
+
             # Просмотры
             if hasattr(message, 'views') and message.views:
-                if is_story:
+                if is_visual_story:
                     stories_views += message.views
-                elif not is_circle:  # Обычные посты (не кружки)
+                elif not is_circle:
                     posts_views += message.views
-            
+
             # Пересылки
             if hasattr(message, 'forwards') and message.forwards:
-                if is_story:
+                if is_visual_story:
                     stories_forwards += message.forwards
                 elif not is_circle:
                     posts_forwards += message.forwards
-            
+
             # Реакции
             if hasattr(message, 'reactions') and message.reactions:
                 message_reactions = 0
                 for reaction in message.reactions.results:
                     message_reactions += reaction.count
-                
-                if is_story:
+                if is_visual_story:
                     stories_reactions += message_reactions
                 elif not is_circle:
                     posts_reactions += message_reactions
@@ -551,7 +591,7 @@ async def smm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     smm_data = await get_weekly_smm_data(week_start, week_end)
     
     if smm_data:
-        # Формируем отчет
+        # Формируем отчет с НОВОЙ ТЕРМИНОЛОГИЕЙ
         report = (
             f"📊 <b>Еженедельный SMM-отчет</b>\n"
             f"📅 <b>Период:</b> {smm_data['period']}\n\n"
@@ -571,14 +611,14 @@ async def smm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Пересылки: {smm_data['posts_forwards']}\n"
             f"Реакции: {smm_data['posts_reactions']}\n\n"
             
-            f"📺 <b>Активность историй</b>\n"
+            f"📺 <b>Визуальный контент (видео+фото)</b>\n"
             f"Просмотры: {smm_data['stories_views']:,}\n"
             f"Пересылки: {smm_data['stories_forwards']}\n"
             f"Реакции: {smm_data['stories_reactions']}\n\n"
             
             f"📈 <b>Статистика</b>\n"
             f"Постов за неделю: {smm_data['total_posts']}\n"
-            f"Историй за неделю: {smm_data.get('total_stories', 0)}\n"  # Добавили количество stories
+            f"Визуального контента: {smm_data.get('total_stories', 0)}\n"
             f"Средние просмотры поста: {smm_data['posts_views'] // max(smm_data['total_posts'], 1):,}\n"
             f"Engagement Rate: {((smm_data['posts_reactions'] + smm_data['posts_forwards']) / max(smm_data['current_subscribers'], 1) * 100):.2f}%\n\n"
             
@@ -1117,11 +1157,11 @@ async def daily_report_command(update, context):
             f"👥 <b>Подписалось:</b> {analytics['joined']}\n"
             f"👋 <b>Отписалось:</b> {analytics['left']}\n"
             f"📝 <b>Постов:</b> {analytics['posts']}\n"
-            f"📺 <b>Сторис:</b> {analytics['stories']}\n"
+            f"📺 <b>Визуальный контент (видео+фото):</b> {analytics['stories']}\n"
             f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
             f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
-            f"📊 <b>Средний охват сторис:</b> {analytics['avg_story_reach']}\n"
-            f"❤️ <b>Средние лайки на сторис:</b> {analytics['avg_story_likes']}\n"
+            f"📊 <b>Средний охват визуального контента:</b> {analytics['avg_story_reach']}\n"
+            f"❤️ <b>Средние лайки на визуальный контент:</b> {analytics['avg_story_likes']}\n"
             f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}",
             parse_mode='HTML'
         )
@@ -1152,11 +1192,11 @@ async def monthly_report_command(update, context):
             f"👥 <b>Подписалось:</b> {analytics['joined']}\n"
             f"👋 <b>Отписалось:</b> {analytics['left']}\n"
             f"📝 <b>Постов:</b> {analytics['posts']}\n"
-            f"📺 <b>Сторис:</b> {analytics['stories']}\n"
+            f"📺 <b>Визуальный контент (видео+фото):</b> {analytics['stories']}\n"
             f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
             f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
-            f"📊 <b>Средний охват сторис:</b> {analytics['avg_story_reach']}\n"
-            f"❤️ <b>Средние лайки на сторис:</b> {analytics['avg_story_likes']}\n"
+            f"📊 <b>Средний охват визуального контента:</b> {analytics['avg_story_reach']}\n"
+            f"❤️ <b>Средние лайки на визуальный контент:</b> {analytics['avg_story_likes']}\n"
             f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}",
             parse_mode='HTML'
         )
