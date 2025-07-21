@@ -6,19 +6,21 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install only essential system dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY requirements.health .
+COPY requirements.txt .
 
-# Install minimal dependencies (health server uses only stdlib)
-RUN pip install --upgrade pip
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 # Copy application files
 COPY . .
@@ -27,4 +29,4 @@ COPY . .
 EXPOSE 8080
 
 # Command to run the application
-CMD ["python", "ultra_simple_bot.py"]
+CMD ["python", "main.py"]

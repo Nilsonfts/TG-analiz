@@ -1,5 +1,6 @@
 # Core bot framework
 aiogram==3.7.0
+python-telegram-bot==21.3
 aiohttp==3.9.5
 
 # Database
