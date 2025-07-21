@@ -28,16 +28,19 @@
 - **Test Coverage** - Comprehensive test suite with 90%+ coverage
 - **CI/CD Pipeline** - Automated testing, linting, and deployment
 
-## 📋 Commands
+## 🤖 Команды бота
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message and bot introduction |
-| `/summary` | Channel analytics summary |
-| `/growth` | Growth statistics and trends |
-| `/charts` | Interactive data visualization |
-| `/channel_info` | Detailed channel information |
-| `/help` | Commands reference |
+- `/start` - Информация о боте и статус
+- `/status` - Проверка всех систем
+- `/summary` - Краткая сводка канала
+- `/growth` - Анализ роста подписчиков  
+- `/insights` - Маркетинговые инсайты
+- `/analiz` - Визуальная аналитика (PNG графики)
+- `/charts` - Интерактивные графики
+- `/daily_report` - 📅 Ежедневный отчет (06:00-06:00)
+- `/monthly_report` - 📆 Месячный отчет (30 дней)
+- `/channel_info` - Информация о канале
+- `/help` - Справка по командам
 
 ## 🛠 Setup
 
