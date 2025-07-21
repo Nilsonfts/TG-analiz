@@ -245,6 +245,8 @@ class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Handle GET requests for health checks."""
+        logger.info(f"📊 Health check request: {self.path}")
+        
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -260,6 +262,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 "channel_configured": bool(CHANNEL_ID),
                 "admin_users": len([u for u in ADMIN_USERS if u.strip()]),
             }
+            logger.info("✅ Health check: Responding with healthy status")
         else:
             response = {
                 "message": "🤖 Railway Telegram Bot",
@@ -279,30 +282,21 @@ def start_http_server() -> None:
         port = PORT
         logger.info(f"🌐 Starting HTTP server on 0.0.0.0:{port}")
         
-        # Check if port is already in use
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        result = sock.connect_ex(('127.0.0.1', port))
-        sock.close()
-        
-        if result == 0:
-            logger.warning(f"⚠️ Port {port} is already in use, HTTP server may already be running")
-            return
-            
         server = HTTPServer(("0.0.0.0", port), HealthHandler)
         logger.info(f"✅ HTTP server started successfully on port {port}")
         logger.info(f"📊 Health check available at: http://0.0.0.0:{port}/health")
         server.serve_forever()
     except OSError as e:
         if e.errno == 98:  # Address already in use
-            logger.warning(f"⚠️ Port {PORT} already in use - HTTP server may already be running")
+            logger.error(f"❌ CRITICAL: Port {PORT} already in use!")
+            logger.error("💡 This will cause Railway healthcheck to fail")
+            # Don't return - try to continue without HTTP server
         else:
             logger.error(f"❌ HTTP server error: {e}")
-            logger.error(f"🔍 Port {PORT} may be in use or blocked")
+        raise  # Re-raise to ensure Railway sees the error
     except Exception as e:
-        logger.error(f"❌ HTTP server error: {e}")
-        logger.error(f"🔍 Port {PORT} may be in use or blocked")
+        logger.error(f"❌ HTTP server unexpected error: {e}")
+        raise
 
 # Команды бота
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -836,12 +830,19 @@ async def main():
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
     # Start HTTP server in a separate thread for Railway health checks
+    # КРИТИЧНО: HTTP сервер должен стартовать ПЕРВЫМ для Railway healthcheck
     try:
         http_thread = threading.Thread(target=start_http_server, daemon=True)
         http_thread.start()
-        logger.info("🌐 HTTP health server started in background thread")
+        
+        # Даем время HTTP серверу запуститься
+        import time
+        time.sleep(2)
+        logger.info("✅ HTTP health server started and ready")
     except Exception as e:
-        logger.warning(f"⚠️ HTTP server start failed: {e}")
+        logger.error(f"❌ CRITICAL: HTTP server failed to start: {e}")
+        logger.error("💀 Railway healthcheck will FAIL without HTTP server")
+        raise  # Останавливаем весь процесс если HTTP сервер не запустился
 
     # Run the bot
     logger.info("🚀 Starting Telegram bot...")
@@ -856,16 +857,16 @@ async def main():
 def run_bot():
     """Run the bot with proper event loop handling."""
     try:
-        # Check if there's already a running event loop
-        try:
-            loop = asyncio.get_running_loop()
-            logger.info("🔄 Event loop already running, using existing loop")
-            # If we're in an existing loop, schedule the coroutine
-            asyncio.create_task(main())
-        except RuntimeError:
-            # No running loop, create a new one
-            logger.info("🆕 Creating new event loop")
-            asyncio.run(main())
+        # Просто запускаем main() через asyncio.run
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "This event loop is already running" in str(e):
+            logger.error("❌ CRITICAL: Event loop already running!")
+            logger.error("💡 This usually means the bot was not properly stopped")
+            logger.error("🔄 Try restarting the Railway deployment")
+        else:
+            logger.error(f"❌ Runtime error: {e}")
+        raise
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
         raise
