@@ -374,8 +374,42 @@ async def main() -> None:
     
     logger.info("✅ Telegram bot started on Railway!")
     
-    # Run the bot
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Start the bot using application.run_polling instead of asyncio.run
+    try:
+        # Initialize and start polling
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        
+        # Keep running until interrupted
+        try:
+            await asyncio.sleep(float('inf'))
+        except KeyboardInterrupt:
+            logger.info("👋 Received shutdown signal")
+        finally:
+            # Cleanup
+            await application.updater.stop()
+            await application.stop()
+            await application.shutdown()
+            
+    except Exception as e:
+        logger.error(f"❌ Bot error: {e}")
+
+def run_bot():
+    """Run the bot with proper event loop handling."""
+    try:
+        # Try to get current event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If loop is running, create a task
+            task = loop.create_task(main())
+            return task
+        except RuntimeError:
+            # No running loop, create new one
+            return asyncio.run(main())
+    except Exception as e:
+        logger.error(f"❌ Failed to start bot: {e}")
+        return asyncio.run(main())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_bot()
