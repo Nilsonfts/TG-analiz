@@ -72,13 +72,27 @@ class Settings(BaseSettings):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Parse admin user IDs from comma-separated string
-        admin_users_str = os.getenv("ADMIN_USER_IDS", "")
+        
+        # Handle alternative environment variable names
+        # API_ID -> TELEGRAM_API_ID
+        if not self.telegram_api_id and os.getenv("API_ID"):
+            self.telegram_api_id = int(os.getenv("API_ID"))
+        
+        # API_HASH -> TELEGRAM_API_HASH  
+        if not self.telegram_api_hash and os.getenv("API_HASH"):
+            self.telegram_api_hash = os.getenv("API_HASH")
+            
+        # ADMIN_USERS -> ADMIN_USER_IDS
+        admin_users_str = os.getenv("ADMIN_USER_IDS", "") or os.getenv("ADMIN_USERS", "")
         if admin_users_str:
             self.admin_user_ids = [
                 int(uid.strip()) for uid in admin_users_str.split(",") 
                 if uid.strip().isdigit()
             ]
+            
+        # REPORTS_CHAT_ID -> REPORT_CHAT_ID
+        if not self.report_chat_id and os.getenv("REPORTS_CHAT_ID"):
+            self.report_chat_id = int(os.getenv("REPORTS_CHAT_ID"))
 
 
 # Global settings instance
