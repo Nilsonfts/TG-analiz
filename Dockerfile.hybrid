@@ -2,13 +2,27 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Копируем requirements для базовых зависимостей
+# Устанавливаем системные зависимости для PostgreSQL
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем requirements для зависимостей
 COPY requirements.txt .
 
-# Устанавливаем только критические зависимости
-RUN pip install --no-cache-dir aiogram python-dotenv requests
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir \
+    aiogram \
+    python-dotenv \
+    requests \
+    asyncpg \
+    sqlalchemy[asyncio] \
+    alembic \
+    pydantic \
+    pydantic-settings
 
-# Копируем весь код (с graceful imports)
+# Копируем весь код
 COPY . .
 
 # Основная команда - гибридный бот

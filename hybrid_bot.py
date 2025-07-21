@@ -148,17 +148,46 @@ class BotManager:
             bot = Bot(token=bot_token)
             dp = Dispatcher()
             
+            # Пытаемся подключить аналитику
+            analytics_available = False
+            try:
+                from src.db.database_service import DatabaseService
+                from src.handlers.analytics_commands import AnalyticsCommands
+                
+                # Проверяем наличие DATABASE_URL
+                database_url = os.getenv('DATABASE_URL')
+                if database_url:
+                    db_service = DatabaseService(database_url)
+                    await db_service.init_db()
+                    
+                    analytics = AnalyticsCommands(db_service)
+                    dp.include_router(analytics.router)
+                    analytics_available = True
+                    logger.info("✅ Аналитические команды подключены!")
+                else:
+                    logger.warning("⚠️ DATABASE_URL не найден, аналитика отключена")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Аналитика недоступна: {e}")
+            
             @dp.message(Command("start"))
             async def start_command(message: Message):
+                status_text = "🔥 Полная аналитика" if analytics_available else "⚡ Базовый режим"
                 await message.answer(
-                    "🤖 <b>Telegram Analytics Bot запущен!</b>\n\n"
-                    "📊 <b>Статус:</b> Базовый режим\n"
-                    "⚡ <b>Режим:</b> Простой бот\n\n"
-                    "📝 <b>Доступные команды:</b>\n"
-                    "/start - Информация о боте\n"
-                    "/status - Текущий статус\n"
-                    "/help - Помощь\n"
-                    "/info - Информация о системе",
+                    f"🤖 <b>Telegram Analytics Bot запущен!</b>\n\n"
+                    f"📊 <b>Статус:</b> {status_text}\n"
+                    f"⚡ <b>Режим:</b> Гибридный бот\n\n"
+                    f"📝 <b>Основные команды:</b>\n"
+                    f"/start - Информация о боте\n"
+                    f"/status - Текущий статус\n"
+                    f"/help - Помощь\n"
+                    f"/info - Информация о системе\n\n" +
+                    (f"📊 <b>Аналитические команды:</b>\n"
+                     f"/add @channel - Добавить канал\n"
+                     f"/list - Список каналов\n"
+                     f"/stats @channel - Статистика\n"
+                     f"/summary - Общая сводка\n\n" if analytics_available else "") +
+                    f"🌐 <b>Web интерфейс:</b> {os.getenv('RAILWAY_URL', 'localhost:8080')}/status",
                     parse_mode="HTML"
                 )
             
@@ -171,23 +200,42 @@ class BotManager:
                     f"🕐 <b>Время работы:</b> {uptime:.0f}с\n"
                     f"❌ <b>Ошибки:</b> {self.error_count}\n"
                     f"🤖 <b>ID бота:</b> {bot.id}\n"
-                    f"⚡ <b>Health server:</b> Работает",
+                    f"⚡ <b>Health server:</b> Работает\n"
+                    f"📊 <b>Аналитика:</b> {'✅ Включена' if analytics_available else '❌ Отключена'}\n"
+                    f"💾 <b>База данных:</b> {'✅ PostgreSQL' if analytics_available else '❌ Не подключена'}",
                     parse_mode="HTML"
                 )
             
             @dp.message(Command("help"))
             async def help_command(message: Message):
-                await message.answer(
+                help_text = (
                     "🆘 <b>Помощь по боту:</b>\n\n"
-                    "Этот бот предназначен для аналитики Telegram каналов.\n"
-                    "Сейчас работает в базовом режиме.\n\n"
-                    "📝 <b>Команды:</b>\n"
+                    "Этот бот предназначен для аналитики Telegram каналов.\n\n"
+                    "📝 <b>Основные команды:</b>\n"
                     "/start - Запуск бота\n"
                     "/status - Статус системы\n"
                     "/help - Эта справка\n"
-                    "/info - Техническая информация",
-                    parse_mode="HTML"
+                    "/info - Техническая информация\n\n"
                 )
+                
+                if analytics_available:
+                    help_text += (
+                        "� <b>Команды аналитики:</b>\n"
+                        "/add @channel - Добавить канал в мониторинг\n"
+                        "/remove @channel - Удалить канал\n"
+                        "/list - Список всех каналов\n"
+                        "/stats @channel [дни] - Статистика канала\n"
+                        "/summary - Общая сводка\n"
+                        "/channels - Публичный список каналов\n\n"
+                        "👑 <b>Админские команды требуют прав администратора</b>"
+                    )
+                else:
+                    help_text += (
+                        "⚠️ <b>Аналитические функции недоступны</b>\n"
+                        "Для активации добавьте DATABASE_URL в переменные окружения"
+                    )
+                
+                await message.answer(help_text, parse_mode="HTML")
             
             @dp.message(Command("info"))
             async def info_command(message: Message):
@@ -201,7 +249,9 @@ class BotManager:
                     "🔧 <b>Режимы работы:</b>\n"
                     "• running_full - Полный функционал\n"
                     "• running_simple - Базовый режим\n"
-                    "• health_only - Только health check",
+                    "• health_only - Только health check\n\n"
+                    f"📊 <b>Аналитика:</b> {'✅ Активна' if analytics_available else '❌ Неактивна'}\n"
+                    f"💾 <b>PostgreSQL:</b> {'✅ Подключен' if analytics_available else '❌ Не подключен'}",
                     parse_mode="HTML"
                 )
             
@@ -213,12 +263,13 @@ class BotManager:
                     "Используйте команды:\n"
                     "/start - Начать работу\n"
                     "/help - Получить помощь\n"
-                    "/status - Проверить статус"
+                    "/status - Проверить статус" +
+                    ("\n/list - Список каналов" if analytics_available else "")
                 )
             
             logger.info("🔄 Starting simple bot...")
             self.bot = bot
-            self.status = "running_simple"
+            self.status = "running_analytics" if analytics_available else "running_simple"
             
             await dp.start_polling(bot)
             
