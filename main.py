@@ -28,37 +28,107 @@ except ImportError as e:
     logger.error(f"❌ Telegram import error: {e}")
     TELEGRAM_AVAILABLE = False
 
+# Import Telethon for channel analytics
+try:
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+    TELETHON_AVAILABLE = True
+    logger.info("✅ Telethon imported successfully")
+except ImportError as e:
+    logger.error(f"❌ Telethon import error: {e}")
+    TELETHON_AVAILABLE = False
+
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
+SESSION_STRING = os.getenv("SESSION_STRING")
+PHONE_NUMBER = os.getenv("PHONE_NUMBER")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 ADMIN_USERS = os.getenv("ADMIN_USERS", "").split(",")
 PORT = int(os.getenv("PORT", "8080"))
 
 # Global Telethon client
-telethon_client: Any = None
+telethon_client: Optional[TelegramClient] = None
+
+
+async def get_channel_stats_via_bot_api() -> Optional[Dict[str, Any]]:
+    """Get channel statistics using Telegram Bot API.
+    
+    Returns:
+        Optional[Dict[str, Any]]: Channel stats or None if unavailable.
+    """
+    if not BOT_TOKEN or not CHANNEL_ID:
+        return None
+
+    try:
+        # Создаем временного бота для получения информации
+        from telegram import Bot
+        bot = Bot(token=BOT_TOKEN)
+        
+        # Получаем информацию о канале
+        chat = await bot.get_chat(chat_id=CHANNEL_ID)
+        member_count = await bot.get_chat_member_count(chat_id=CHANNEL_ID)
+        
+        stats = {
+            "title": chat.title,
+            "username": chat.username or "Private channel",
+            "participants_count": member_count,
+            "description": (
+                chat.description[:100] + "..." 
+                if chat.description 
+                else ""
+            ),
+            "type": chat.type,
+        }
+
+        return stats
+    except Exception as e:
+        logger.error(f"❌ Error getting channel stats: {e}")
+        return None
 
 
 async def init_telethon() -> bool:
-    """Initialize Telethon client for channel data access.
+    """Initialize Telethon client for advanced channel analytics.
     
     Returns:
         bool: True if initialization successful, False otherwise.
     """
     global telethon_client
-    if API_ID and API_HASH:
-        try:
-            from telethon import TelegramClient
-
-            telethon_client = TelegramClient("railway_session", int(API_ID), API_HASH)
+    
+    if not TELETHON_AVAILABLE:
+        logger.warning("⚠️ Telethon not available - advanced analytics disabled")
+        return False
+    
+    if not API_ID or not API_HASH:
+        logger.warning("⚠️ API_ID or API_HASH not set - Telethon disabled")
+        return False
+    
+    try:
+        # Try with SESSION_STRING first
+        if SESSION_STRING:
+            logger.info("🔐 Initializing Telethon with session string...")
+            telethon_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
             await telethon_client.start()
-            logger.info("✅ Telethon connected for channel work")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Telethon initialization error: {e}")
+            
+        # Try with PHONE_NUMBER if no session string
+        elif PHONE_NUMBER:
+            logger.info("📱 Initializing Telethon with phone number...")
+            telethon_client = TelegramClient("railway_session", API_ID, API_HASH)
+            await telethon_client.start(phone=PHONE_NUMBER)
+            
+        else:
+            logger.warning("⚠️ No SESSION_STRING or PHONE_NUMBER provided")
             return False
-    return False
+        
+        # Test connection
+        me = await telethon_client.get_me()
+        logger.info(f"✅ Telethon connected as: {me.first_name}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Telethon initialization error: {e}")
+        return False
 
 
 async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
@@ -69,27 +139,32 @@ async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
     """
     if not telethon_client or not CHANNEL_ID:
         return None
-
+    
     try:
-        # Get channel information
-        channel = await telethon_client.get_entity(int(CHANNEL_ID))
-
-        # Get statistics
+        # Get channel entity
+        if CHANNEL_ID.startswith('@'):
+            channel = await telethon_client.get_entity(CHANNEL_ID)
+        else:
+            channel = await telethon_client.get_entity(int(CHANNEL_ID))
+        
+        # Get full channel info
+        full_channel = await telethon_client.get_entity(channel)
+        
         stats = {
             "title": channel.title,
-            "username": getattr(channel, "username", "Private channel"),
-            "participants_count": getattr(channel, "participants_count", 0),
-            "description": (
-                getattr(channel, "about", "")[:100] + "..."
-                if getattr(channel, "about", "")
-                else ""
-            ),
+            "username": getattr(channel, 'username', 'Private channel'),
+            "participants_count": getattr(full_channel, 'participants_count', 0),
+            "description": getattr(channel, 'about', '')[:100] + "..." if getattr(channel, 'about', '') else "",
+            "type": "Channel",
+            "telethon_data": True
         }
-
+        
         return stats
+        
     except Exception as e:
         logger.error(f"❌ Error getting channel stats: {e}")
         return None
+
 
 # HTTP server for healthcheck
 class HealthHandler(BaseHTTPRequestHandler):
@@ -108,12 +183,13 @@ class HealthHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             response = {
                 "status": "healthy",
-                "service": "telegram-bot",
+                "service": "telegram-analytics-bot",
+                "version": "2.0.0",
+                "timestamp": time.time(),
                 "railway": True,
-                "telegram_available": TELEGRAM_AVAILABLE,
-                "bot_token_set": bool(BOT_TOKEN),
+                "bot_configured": bool(BOT_TOKEN),
                 "channel_configured": bool(CHANNEL_ID),
-                "telethon_configured": bool(API_ID and API_HASH),
+                "admin_users": len([u for u in ADMIN_USERS if u.strip()]),
             }
         else:
             response = {
