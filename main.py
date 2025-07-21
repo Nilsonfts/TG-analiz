@@ -278,14 +278,31 @@ def start_http_server() -> None:
     try:
         port = PORT
         logger.info(f"🌐 Starting HTTP server on 0.0.0.0:{port}")
+        
+        # Check if port is already in use
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('127.0.0.1', port))
+        sock.close()
+        
+        if result == 0:
+            logger.warning(f"⚠️ Port {port} is already in use, HTTP server may already be running")
+            return
+            
         server = HTTPServer(("0.0.0.0", port), HealthHandler)
         logger.info(f"✅ HTTP server started successfully on port {port}")
         logger.info(f"📊 Health check available at: http://0.0.0.0:{port}/health")
         server.serve_forever()
+    except OSError as e:
+        if e.errno == 98:  # Address already in use
+            logger.warning(f"⚠️ Port {PORT} already in use - HTTP server may already be running")
+        else:
+            logger.error(f"❌ HTTP server error: {e}")
+            logger.error(f"🔍 Port {PORT} may be in use or blocked")
     except Exception as e:
         logger.error(f"❌ HTTP server error: {e}")
         logger.error(f"🔍 Port {PORT} may be in use or blocked")
-        raise
 
 # Команды бота
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -819,27 +836,39 @@ async def main():
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
     # Start HTTP server in a separate thread for Railway health checks
-    http_thread = threading.Thread(target=start_http_server, daemon=True)
-    http_thread.start()
-    logger.info("🌐 HTTP health server started in background thread")
+    try:
+        http_thread = threading.Thread(target=start_http_server, daemon=True)
+        http_thread.start()
+        logger.info("🌐 HTTP health server started in background thread")
+    except Exception as e:
+        logger.warning(f"⚠️ HTTP server start failed: {e}")
 
     # Run the bot
     logger.info("🚀 Starting Telegram bot...")
-    await application.run_polling(drop_pending_updates=True)
+    try:
+        await application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        logger.error(f"❌ Bot polling error: {e}")
+        raise
+    finally:
+        logger.info("🔌 Bot stopped")
 
 def run_bot():
     """Run the bot with proper event loop handling."""
     try:
-        # Simply run the main function
-        return asyncio.run(main())
+        # Check if there's already a running event loop
+        try:
+            loop = asyncio.get_running_loop()
+            logger.info("🔄 Event loop already running, using existing loop")
+            # If we're in an existing loop, schedule the coroutine
+            asyncio.create_task(main())
+        except RuntimeError:
+            # No running loop, create a new one
+            logger.info("🆕 Creating new event loop")
+            asyncio.run(main())
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
-        # Try one more time
-        try:
-            return asyncio.run(main())
-        except Exception as e2:
-            logger.error(f"❌ Second attempt failed: {e2}")
-            raise
+        raise
 
 if __name__ == "__main__":
     run_bot()
