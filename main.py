@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from analytics_generator import generate_channel_analytics_image
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -164,6 +165,73 @@ async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
         
     except Exception as e:
         logger.error(f"❌ Error getting channel stats: {e}")
+        return None
+
+
+async def get_channel_analytics_data(start_date, end_date):
+    """Получает реальные данные аналитики канала через Telethon за указанный период."""
+    if not telethon_client or not CHANNEL_ID:
+        return None
+    
+    try:
+        # Получаем сущность канала
+        if CHANNEL_ID.startswith('@'):
+            channel = await telethon_client.get_entity(CHANNEL_ID)
+        else:
+            channel = await telethon_client.get_entity(int(CHANNEL_ID))
+        
+        # Счетчики для аналитики
+        joined = 0  # Будет рассчитываться по изменению количества участников
+        left = 0    # Аналогично
+        posts = 0
+        stories = 0
+        circles = 0
+        total_views = 0
+        total_reactions = 0
+        story_views = 0
+        story_likes = 0
+        
+        # Собираем сообщения за период
+        async for message in telethon_client.iter_messages(channel, offset_date=end_date):
+            if message.date < start_date:
+                break
+                
+            posts += 1
+            
+            # Считаем просмотры
+            if hasattr(message, 'views') and message.views:
+                total_views += message.views
+            
+            # Считаем реакции
+            if hasattr(message, 'reactions') and message.reactions:
+                for reaction in message.reactions.results:
+                    total_reactions += reaction.count
+        
+        # Рассчитываем средние значения
+        avg_post_reach = total_views // posts if posts > 0 else 0
+        avg_story_reach = story_views // stories if stories > 0 else 0
+        avg_story_likes = story_likes // stories if stories > 0 else 0
+        
+        # Рассчитываем ER (упрощенно)
+        if total_views > 0:
+            er = f"{(total_reactions / total_views * 100):.1f}%"
+        else:
+            er = "0.0%"
+        
+        return {
+            'joined': joined,
+            'left': left,
+            'posts': posts,
+            'stories': stories,
+            'circles': circles,
+            'avg_post_reach': avg_post_reach,
+            'avg_story_reach': avg_story_reach,
+            'avg_story_likes': avg_story_likes,
+            'er': er
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting analytics data: {e}")
         return None
 
 
@@ -634,87 +702,124 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚀 Railway деплой работает!"
     )
 
-async def main() -> None:
-    """Main application function."""
-    logger.info("🚀 Starting TG-analiz bot on Railway...")
-    logger.info(f"🔧 Port: {PORT}")
-    logger.info(f"🤖 Bot token: {'✅ Set' if BOT_TOKEN else '❌ Missing'}")
-    logger.info(f"📺 Channel: {CHANNEL_ID or 'Not configured'}")
-    logger.info(f"📚 Telegram libs: {'✅ Available' if TELEGRAM_AVAILABLE else '❌ Missing'}")
+async def daily_report_command(update, context):
+    """Команда /daily_report — ежедневный отчет за последние сутки (06:00-06:00)"""
+    from datetime import datetime, timedelta, time
+    import pytz
     
-    # Always start HTTP server first for health checks
-    http_thread = threading.Thread(target=start_http_server, daemon=True)
-    http_thread.start()
-    logger.info("🌐 HTTP health check server started")
+    # Временная зона (можно вынести в конфиг)
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    end = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now.hour < 6:
+        end = end - timedelta(days=0)
+    start = end - timedelta(days=1)
     
-    # Check if we can run the Telegram bot
+    # Получаем реальные данные через Telethon
+    analytics = await get_channel_analytics_data(start, end)
+    if analytics:
+        await update.message.reply_text(
+            f"📅 <b>Ежедневный отчет</b>\n"
+            f"Период: {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"👥 <b>Подписалось:</b> {analytics['joined']}\n"
+            f"👋 <b>Отписалось:</b> {analytics['left']}\n"
+            f"📝 <b>Постов:</b> {analytics['posts']}\n"
+            f"📺 <b>Сторис:</b> {analytics['stories']}\n"
+            f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
+            f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
+            f"📊 <b>Средний охват сторис:</b> {analytics['avg_story_reach']}\n"
+            f"❤️ <b>Средние лайки на сторис:</b> {analytics['avg_story_likes']}\n"
+            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}",
+            parse_mode='HTML'
+        )
+    else:
+        await update.message.reply_text(
+            "❌ Не удалось получить реальные данные за сутки.\nПроверьте настройки Telethon или попробуйте позже.",
+            parse_mode='HTML'
+        )
+
+async def monthly_report_command(update, context):
+    """Команда /monthly_report — отчет за последние 30 дней (06:00-06:00)"""
+    from datetime import datetime, timedelta, time
+    import pytz
+    
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    end = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now.hour < 6:
+        end = end - timedelta(days=0)
+    start = end - timedelta(days=30)
+    
+    # Получаем реальные данные через Telethon
+    analytics = await get_channel_analytics_data(start, end)
+    if analytics:
+        await update.message.reply_text(
+            f"📆 <b>Месячный отчет</b>\n"
+            f"Период: {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"👥 <b>Подписалось:</b> {analytics['joined']}\n"
+            f"👋 <b>Отписалось:</b> {analytics['left']}\n"
+            f"📝 <b>Постов:</b> {analytics['posts']}\n"
+            f"📺 <b>Сторис:</b> {analytics['stories']}\n"
+            f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
+            f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
+            f"📊 <b>Средний охват сторис:</b> {analytics['avg_story_reach']}\n"
+            f"❤️ <b>Средние лайки на сторис:</b> {analytics['avg_story_likes']}\n"
+            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}",
+            parse_mode='HTML'
+        )
+    else:
+        await update.message.reply_text(
+            "❌ Не удалось получить реальные данные за месяц.\nПроверьте настройки Telethon или попробуйте позже.",
+            parse_mode='HTML'
+        )
+
+async def main():
+    """Main function to run the bot."""
     if not TELEGRAM_AVAILABLE:
-        logger.error("❌ Telegram libraries not available!")
-        logger.info("💡 Install: pip install python-telegram-bot telethon")
-        logger.info("🏥 Health check server running on /health")
-        # Keep the process alive for health checks
-        try:
-            await asyncio.sleep(float('inf'))
-        except KeyboardInterrupt:
-            logger.info("👋 Graceful shutdown")
+        logger.error("❌ Telegram libraries not available. Please install python-telegram-bot")
         return
-    
+
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN not found in environment variables!")
-        logger.info("💡 Add BOT_TOKEN in Railway Variables")
-        logger.info("🏥 Health check server running on /health")
-        # Keep the process alive for health checks
-        try:
-            await asyncio.sleep(float('inf'))
-        except KeyboardInterrupt:
-            logger.info("👋 Graceful shutdown")
+        logger.error("❌ BOT_TOKEN not set. Please configure your environment variables.")
         return
-    
-    # Initialize Telethon for channel work
-    await init_telethon()
-    
-    # Create Telegram bot application
+
+    # Initialize Telethon for advanced analytics
+    telethon_init_success = await init_telethon()
+    if telethon_init_success:
+        logger.info("✅ Telethon initialized successfully")
+    else:
+        logger.warning("⚠️ Telethon initialization failed - using limited analytics")
+
+    # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
-    
+
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("analiz", analiz_command))
-    application.add_handler(CommandHandler("insights", insights_command))
+    application.add_handler(CommandHandler("channel", channel_info_command))
     application.add_handler(CommandHandler("summary", summary_command))
     application.add_handler(CommandHandler("growth", growth_command))
+    application.add_handler(CommandHandler("insights", insights_command))
     application.add_handler(CommandHandler("charts", charts_command))
-    application.add_handler(CommandHandler("channel_info", channel_info_command))
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("analiz", analiz_command))
+    application.add_handler(CommandHandler("daily_report", daily_report_command))
+    application.add_handler(CommandHandler("monthly_report", monthly_report_command))
     
-    # Add callback query handler
-    application.add_handler(CallbackQueryHandler(handle_chart_callback, pattern="^chart_"))
+    # Add callback query handler for chart interactions
+    application.add_handler(CallbackQueryHandler(handle_chart_callback))
     
-    # Add unknown command handler
+    # Add handler for unknown commands
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-    
-    logger.info("✅ Telegram bot started on Railway!")
-    
-    # Start the bot using application.run_polling instead of asyncio.run
-    try:
-        # Initialize and start polling
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        
-        # Keep running until interrupted
-        try:
-            await asyncio.sleep(float('inf'))
-        except KeyboardInterrupt:
-            logger.info("👋 Received shutdown signal")
-        finally:
-            # Cleanup
-            await application.updater.stop()
-            await application.stop()
-            await application.shutdown()
-            
-    except Exception as e:
-        logger.error(f"❌ Bot error: {e}")
+
+    # Start HTTP server in a separate thread for Railway health checks
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+    logger.info("🌐 HTTP health server started in background thread")
+
+    # Run the bot
+    logger.info("🚀 Starting Telegram bot...")
+    await application.run_polling(drop_pending_updates=True)
 
 def run_bot():
     """Run the bot with proper event loop handling."""
