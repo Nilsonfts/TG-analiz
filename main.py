@@ -855,21 +855,42 @@ async def main():
         logger.info("🔌 Bot stopped")
 
 def run_bot():
-    """Run the bot with proper event loop handling."""
+    """Run the bot with event loop compatibility."""
     try:
-        # Просто запускаем main() через asyncio.run
-        asyncio.run(main())
-    except RuntimeError as e:
-        if "This event loop is already running" in str(e):
-            logger.error("❌ CRITICAL: Event loop already running!")
-            logger.error("💡 This usually means the bot was not properly stopped")
-            logger.error("🔄 Try restarting the Railway deployment")
-        else:
-            logger.error(f"❌ Runtime error: {e}")
-        raise
+        # Check if we're in Jupyter/existing loop environment
+        try:
+            loop = asyncio.get_running_loop()
+            logger.warning("⚠️ Event loop already running - using nest_asyncio")
+            
+            # Try to use nest_asyncio for compatibility
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+                logger.info("✅ Applied nest_asyncio patch")
+            except ImportError:
+                logger.error("❌ nest_asyncio not available, trying alternative")
+            
+            # Create task in existing loop
+            task = loop.create_task(main())
+            return task
+            
+        except RuntimeError:
+            # No running loop - safe to use asyncio.run
+            logger.info("✅ No existing loop - using asyncio.run")
+            return asyncio.run(main())
+            
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
-        raise
+        logger.error("🔄 Trying Railway-compatible fallback...")
+        
+        # Railway fallback - create fresh loop
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(main())
+        except Exception as e2:
+            logger.error(f"❌ Fallback failed: {e2}")
+            raise
 
 if __name__ == "__main__":
     run_bot()

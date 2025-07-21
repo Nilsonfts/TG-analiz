@@ -14,6 +14,9 @@ telethon==1.36.0
 # Task scheduling
 apscheduler==3.10.4
 
+# Event loop compatibility
+nest-asyncio==1.6.0
+
 # Data visualization
 matplotlib==3.8.4
 plotly==5.17.0
