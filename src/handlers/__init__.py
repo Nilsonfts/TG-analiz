@@ -14,18 +14,46 @@ from src.db.models import DatabaseManager, Channel
 from src.collectors import CompositeCollector
 from src.collectors.telegram_collector import TelegramCollector
 from src.collectors.external_collectors import TelemetrCollector, TGStatCollector
-from src.reports import ReportGenerator
-from src.reports.export_service import DataExportService
 from src.scheduler import SchedulerService
 from src.utils.logging import get_bot_logger
 
 logger = get_bot_logger()
 
+# Safe import for ReportGenerator (may fail on missing matplotlib/pandas)
+try:
+    from src.reports import ReportGenerator
+    logger.info("✅ Full ReportGenerator with charts loaded")
+except ImportError as e:
+    logger.warning(f"⚠️ ReportGenerator import failed: {e}")
+    logger.info("🔄 Using simplified report generator without charts")
+    
+    # Create a minimal inline ReportGenerator
+    class ReportGenerator:
+        def __init__(self):
+            self.logger = logger
+            
+        async def generate_text_report(self, channel_id: int, days: int = 7) -> str:
+            return f"""📊 Channel Analytics Report (Last {days} days)
+            
+⚠️ Chart generation temporarily disabled.
+📈 Data collection is active.
+🔧 Install pandas/matplotlib for full charts."""
+            
+        async def generate_chart(self, *args, **kwargs):
+            self.logger.warning("Chart generation disabled - dependencies not available")
+            return None
+
+try:
+    from src.reports.export_service import DataExportService
+except ImportError as e:
+    logger.warning(f"DataExportService import failed: {e}. Export will be disabled.")
+    DataExportService = None
+
 # Initialize services
 db_manager: Optional[DatabaseManager] = None
 collector: Optional[CompositeCollector] = None
-report_generator: Optional[ReportGenerator] = None
-export_service: Optional[DataExportService] = None
+report_generator = None  # Optional[ReportGenerator] = None
+export_service = None    # Optional[DataExportService] = None
 scheduler_service: Optional[SchedulerService] = None
 
 # Router for handlers
