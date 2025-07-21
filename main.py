@@ -270,7 +270,7 @@ async def get_channel_analytics_data(start_date, end_date):
             hour = message.date.hour
             
             # Статистика по часам (только для обычных постов)
-            if not is_story and not is_circle:
+            if not (is_story or is_circle):
                 if hour not in posts_by_hour:
                     posts_by_hour[hour] = {"views": 0, "reactions": 0, "posts": 0}
                 posts_by_hour[hour]["posts"] += 1
@@ -279,14 +279,17 @@ async def get_channel_analytics_data(start_date, end_date):
             if hasattr(message, 'views') and message.views:
                 if is_story:
                     story_views += message.views
-                else:
+                elif not is_circle:
                     total_views += message.views
-                    if not is_circle and hour in posts_by_hour:
+                    if hour in posts_by_hour:
                         posts_by_hour[hour]["views"] += message.views
             
             # Считаем пересылки
             if hasattr(message, 'forwards') and message.forwards:
-                total_forwards += message.forwards
+                if is_story:
+                    story_forwards += message.forwards
+                else:
+                    total_forwards += message.forwards
             
             # Считаем реакции с разделением на посты и stories
             if hasattr(message, 'reactions') and message.reactions:
