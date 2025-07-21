@@ -84,7 +84,47 @@ async def start_working_bot():
             )
             logger.info("✅ /start response sent")
         
+        async def daily_report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            logger.info(f"📨 /daily_report from user {update.effective_user.id}")
+            # Логика сбора данных за последние сутки
+            report = "Ежедневный отчет:\n" \
+                     "- Подписки: 100\n" \
+                     "- Отписки: 50\n" \
+                     "- Публикации: 10\n" \
+                     "- Средние охваты постов: 500\n" \
+                     "- Средние охваты сторис: 300\n" \
+                     "- Вовлеченность: 20%\n" \
+                     "- Средние лайки на сторис: 100"
+            await update.message.reply_text(report)
+            logger.info("✅ /daily_report response sent")
+
+        async def monthly_report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            logger.info(f"📨 /monthly_report from user {update.effective_user.id}")
+            # Логика сбора данных за последний месяц
+            report = "Месячный отчет:\n" \
+                     "- Подписки: 3000\n" \
+                     "- Отписки: 1500\n" \
+                     "- Публикации: 300\n" \
+                     "- Средние охваты постов: 450\n" \
+                     "- Средние охваты сторис: 350\n" \
+                     "- Вовлеченность: 25%\n" \
+                     "- Средние лайки на сторис: 120"
+            await update.message.reply_text(report)
+            logger.info("✅ /monthly_report response sent")
+
+        async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            logger.info(f"📨 /help from user {update.effective_user.id}")
+            help_text = "<b>Доступные команды:</b>\n" \
+                        "- /start: Проверка работы бота\n" \
+                        "- /daily_report: Ежедневный отчет\n" \
+                        "- /monthly_report: Месячный отчет\n"
+            await update.message.reply_text(help_text, parse_mode='HTML')
+            logger.info("✅ /help response sent")
+
         app.add_handler(CommandHandler("start", start_cmd))
+        app.add_handler(CommandHandler("daily_report", daily_report_cmd))
+        app.add_handler(CommandHandler("monthly_report", monthly_report_cmd))
+        app.add_handler(CommandHandler("help", help_cmd))
         logger.info("✅ Commands registered")
         
         # Start the bot
