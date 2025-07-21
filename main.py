@@ -195,38 +195,83 @@ async def get_channel_analytics_data(start_date, end_date):
         
         # Получаем текущее количество подписчиков для правильного расчета ER
         try:
-            full_channel = await telethon_client.get_entity(channel)
-            current_subscribers = getattr(full_channel, 'participants_count', 0) or 1
-        except:
-            current_subscribers = 1
+            from telethon.tl import functions
+            full_channel_req = await telethon_client(functions.channels.GetFullChannelRequest(channel))
+            current_subscribers = full_channel_req.full_chat.participants_count or 0
+            if current_subscribers == 0:
+                # Fallback к базовому методу
+                full_channel = await telethon_client.get_entity(channel)
+                current_subscribers = getattr(full_channel, 'participants_count', 0) or 1
+        except Exception as e:
+            logger.warning(f"Не удалось получить точное количество подписчиков: {e}")
+            try:
+                full_channel = await telethon_client.get_entity(channel)
+                current_subscribers = getattr(full_channel, 'participants_count', 0) or 1
+            except:
+                current_subscribers = 1
         
         # Собираем сообщения за период
         async for message in telethon_client.iter_messages(channel, offset_date=end_date):
             if message.date < start_date:
                 break
-                
-            posts += 1
+            
+            # ПРАВИЛЬНОЕ ОПРЕДЕЛЕНИЕ ТИПА КОНТЕНТА
+            is_story = False
+            is_circle = False
+            
+            # Определяем Stories (обычно это короткие видео/фото с ограниченным временем жизни)
+            if hasattr(message, 'media') and message.media:
+                # Stories часто имеют специальные атрибуты или короткое время жизни
+                if hasattr(message.media, 'ttl_seconds') and message.media.ttl_seconds:
+                    is_story = True
+                    stories += 1
+                # Кружки (видео-сообщения) определяем по типу медиа
+                elif hasattr(message.media, 'round_message') or (
+                    hasattr(message.media, 'document') and 
+                    hasattr(message.media.document, 'attributes') and
+                    any(getattr(attr, 'round_message', False) for attr in message.media.document.attributes)
+                ):
+                    is_circle = True
+                    circles += 1
+                else:
+                    posts += 1
+            else:
+                # Текстовые сообщения считаем как посты
+                posts += 1
+            
             hour = message.date.hour
             
-            # Статистика по часам
-            if hour not in posts_by_hour:
-                posts_by_hour[hour] = {"views": 0, "reactions": 0, "posts": 0}
-            posts_by_hour[hour]["posts"] += 1
+            # Статистика по часам (только для обычных постов)
+            if not is_story and not is_circle:
+                if hour not in posts_by_hour:
+                    posts_by_hour[hour] = {"views": 0, "reactions": 0, "posts": 0}
+                posts_by_hour[hour]["posts"] += 1
             
             # Считаем просмотры
             if hasattr(message, 'views') and message.views:
-                total_views += message.views
-                posts_by_hour[hour]["views"] += message.views
+                if is_story:
+                    story_views += message.views
+                else:
+                    total_views += message.views
+                    if not is_circle and hour in posts_by_hour:
+                        posts_by_hour[hour]["views"] += message.views
             
             # Считаем пересылки
             if hasattr(message, 'forwards') and message.forwards:
                 total_forwards += message.forwards
             
-            # Считаем реакции
+            # Считаем реакции с разделением на посты и stories
             if hasattr(message, 'reactions') and message.reactions:
+                message_reactions = 0
                 for reaction in message.reactions.results:
-                    total_reactions += reaction.count
-                    posts_by_hour[hour]["reactions"] += reaction.count
+                    message_reactions += reaction.count
+                
+                if is_story:
+                    story_likes += message_reactions  # Для stories считаем как лайки
+                else:
+                    total_reactions += message_reactions
+                    if not is_circle and hour in posts_by_hour:
+                        posts_by_hour[hour]["reactions"] += message_reactions
         
         # ПРАВИЛЬНЫЕ МАРКЕТИНГОВЫЕ РАСЧЕТЫ
         
@@ -362,21 +407,54 @@ async def get_weekly_smm_data(start_date, end_date):
             if message.date < start_date:
                 break
             
-            # Считаем только обычные посты (не сторис)
-            total_posts += 1
+            # ПРАВИЛЬНОЕ ОПРЕДЕЛЕНИЕ ТИПА КОНТЕНТА (как в основной функции)
+            is_story = False
+            is_circle = False
             
-            # Просмотры постов
+            # Определяем Stories и Circles
+            if hasattr(message, 'media') and message.media:
+                # Stories - короткие видео/фото с ограниченным временем жизни
+                if hasattr(message.media, 'ttl_seconds') and message.media.ttl_seconds:
+                    is_story = True
+                    total_stories += 1
+                # Кружки (видео-сообщения)
+                elif hasattr(message.media, 'round_message') or (
+                    hasattr(message.media, 'document') and 
+                    hasattr(message.media.document, 'attributes') and
+                    any(getattr(attr, 'round_message', False) for attr in message.media.document.attributes)
+                ):
+                    is_circle = True
+                    # Кружки не учитываем отдельно в SMM, но и не считаем как посты
+                else:
+                    total_posts += 1
+            else:
+                # Текстовые сообщения считаем как посты
+                total_posts += 1
+            
+            # Просмотры
             if hasattr(message, 'views') and message.views:
-                posts_views += message.views
+                if is_story:
+                    stories_views += message.views
+                elif not is_circle:  # Обычные посты (не кружки)
+                    posts_views += message.views
             
-            # Пересылки постов
+            # Пересылки
             if hasattr(message, 'forwards') and message.forwards:
-                posts_forwards += message.forwards
+                if is_story:
+                    stories_forwards += message.forwards
+                elif not is_circle:
+                    posts_forwards += message.forwards
             
-            # Реакции на посты
+            # Реакции
             if hasattr(message, 'reactions') and message.reactions:
+                message_reactions = 0
                 for reaction in message.reactions.results:
-                    posts_reactions += reaction.count
+                    message_reactions += reaction.count
+                
+                if is_story:
+                    stories_reactions += message_reactions
+                elif not is_circle:
+                    posts_reactions += message_reactions
         
         # МАРКЕТИНГОВЫЕ РАСЧЕТЫ - ПРОФЕССИОНАЛЬНЫЙ ПОДХОД
         # Получаем текущее количество подписчиков
@@ -430,6 +508,7 @@ async def get_weekly_smm_data(start_date, end_date):
             'stories_forwards': stories_forwards,
             'stories_reactions': stories_reactions,
             'total_posts': total_posts,
+            'total_stories': total_stories,  # Добавлено для отладки
             'period': f"{start_date.strftime('%d.%m')} - {end_date.strftime('%d.%m.%Y')}"
         }
         
@@ -499,6 +578,7 @@ async def smm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             f"📈 <b>Статистика</b>\n"
             f"Постов за неделю: {smm_data['total_posts']}\n"
+            f"Историй за неделю: {smm_data.get('total_stories', 0)}\n"  # Добавили количество stories
             f"Средние просмотры поста: {smm_data['posts_views'] // max(smm_data['total_posts'], 1):,}\n"
             f"Engagement Rate: {((smm_data['posts_reactions'] + smm_data['posts_forwards']) / max(smm_data['current_subscribers'], 1) * 100):.2f}%\n\n"
             
