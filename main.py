@@ -846,51 +846,75 @@ async def main():
 
     # Run the bot
     logger.info("🚀 Starting Telegram bot...")
+    
+    # NEW APPROACH: Manual start/stop to avoid event loop conflicts
     try:
-        await application.run_polling(drop_pending_updates=True)
+        # Initialize application manually
+        await application.initialize()
+        await application.start()
+        
+        # Start polling with updater (this doesn't create event loop)
+        await application.updater.start_polling(drop_pending_updates=True)
+        
+        logger.info("✅ Bot started successfully!")
+        
+        # Keep running forever (until process killed or exception)
+        while True:
+            await asyncio.sleep(1)
+            
+    except KeyboardInterrupt:
+        logger.info("👋 Received shutdown signal")
     except Exception as e:
-        logger.error(f"❌ Bot polling error: {e}")
+        logger.error(f"❌ Bot error: {e}")
         raise
     finally:
-        logger.info("🔌 Bot stopped")
+        # Clean shutdown
+        logger.info("🔌 Shutting down bot...")
+        try:
+            if application.updater.running:
+                await application.updater.stop()
+            await application.stop()
+            await application.shutdown()
+        except Exception as e:
+            logger.error(f"❌ Shutdown error: {e}")
+        logger.info("✅ Bot stopped cleanly")
 
 def run_bot():
-    """Run the bot with event loop compatibility."""
+    """Run the bot with Railway/Docker compatibility."""
+    logger.info("🚀 Starting TG-analiz bot...")
+    
     try:
-        # Check if we're in Jupyter/existing loop environment
-        try:
-            loop = asyncio.get_running_loop()
-            logger.warning("⚠️ Event loop already running - using nest_asyncio")
+        # Simply use asyncio.run - this should work in Railway
+        asyncio.run(main())
+        
+    except RuntimeError as e:
+        if "cannot be called from a running event loop" in str(e) or "This event loop is already running" in str(e):
+            logger.warning("⚠️ Event loop conflict detected - using alternative approach")
             
-            # Try to use nest_asyncio for compatibility
+            # Alternative: get current loop or create new one
             try:
-                import nest_asyncio
-                nest_asyncio.apply()
-                logger.info("✅ Applied nest_asyncio patch")
-            except ImportError:
-                logger.error("❌ nest_asyncio not available, trying alternative")
-            
-            # Create task in existing loop
-            task = loop.create_task(main())
-            return task
-            
-        except RuntimeError:
-            # No running loop - safe to use asyncio.run
-            logger.info("✅ No existing loop - using asyncio.run")
-            return asyncio.run(main())
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    logger.error("❌ Loop already running - this should not happen in Railway")
+                    logger.error("💡 Try restarting Railway deployment")
+                    raise
+                else:
+                    loop.run_until_complete(main())
+            except RuntimeError:
+                # Last resort: create completely new loop
+                logger.warning("🔄 Creating new event loop...")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(main())
+                finally:
+                    loop.close()
+        else:
+            raise
             
     except Exception as e:
-        logger.error(f"❌ Failed to start bot: {e}")
-        logger.error("🔄 Trying Railway-compatible fallback...")
-        
-        # Railway fallback - create fresh loop
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(main())
-        except Exception as e2:
-            logger.error(f"❌ Fallback failed: {e2}")
-            raise
+        logger.error(f"❌ Critical error: {e}")
+        raise
 
 if __name__ == "__main__":
     run_bot()
