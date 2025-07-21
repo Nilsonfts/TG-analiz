@@ -152,10 +152,10 @@ async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
         full_channel = await telethon_client.get_entity(channel)
         
         stats = {
-            "title": channel.title,
-            "username": getattr(channel, 'username', 'Private channel'),
-            "participants_count": getattr(full_channel, 'participants_count', 0),
-            "description": getattr(channel, 'about', '')[:100] + "..." if getattr(channel, 'about', '') else "",
+            "title": getattr(channel, 'title', None) or 'Неизвестный канал',
+            "username": getattr(channel, 'username', None) or 'Private channel',
+            "participants_count": getattr(full_channel, 'participants_count', None) or 0,
+            "description": (getattr(channel, 'about', '') or '')[:100] + "..." if getattr(channel, 'about', '') else "",
             "type": "Channel",
             "telethon_data": True
         }
@@ -292,9 +292,9 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         growth_today = "+127" # Временно, пока не добавим историю
         growth_week = "+0.8%" # Временно
         
-        title = real_stats.get('title', 'Канал')
-        participants = real_stats.get('participants_count', 0)
-        username = real_stats.get('username', 'неизвестно')
+        title = real_stats.get('title') or 'Неизвестный канал'
+        participants = real_stats.get('participants_count') or 0
+        username = real_stats.get('username') or 'неизвестно'
         
         await update.message.reply_text(
             f"📊 <b>Сводка: {title}</b>\n\n"
@@ -326,8 +326,14 @@ async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     real_stats = await get_real_channel_stats()
     
     if real_stats and isinstance(real_stats, dict):
-        current_count = real_stats.get('participants_count', 0)
-        channel_name = real_stats.get('title', 'Канал')
+        current_count = real_stats.get('participants_count') or 0
+        channel_name = real_stats.get('title') or 'Неизвестный канал'
+        
+        # Защита от None значений
+        try:
+            current_count = int(current_count) if current_count is not None else 0
+        except (ValueError, TypeError):
+            current_count = 0
         
         # Маркетинговые метрики роста
         await update.message.reply_text(
@@ -396,8 +402,14 @@ async def insights_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     real_stats = await get_real_channel_stats()
     
     if real_stats and isinstance(real_stats, dict):
-        channel_name = real_stats.get('title', 'Канал')
-        participants = real_stats.get('participants_count', 0)
+        channel_name = real_stats.get('title') or 'Неизвестный канал'
+        participants = real_stats.get('participants_count') or 0
+        
+        # Защита от None значений
+        try:
+            participants = int(participants) if participants is not None else 0
+        except (ValueError, TypeError):
+            participants = 0
     else:
         channel_name = 'Демо-канал'
         participants = 15247
@@ -707,18 +719,16 @@ async def main() -> None:
 def run_bot():
     """Run the bot with proper event loop handling."""
     try:
-        # Try to get current event loop
-        try:
-            loop = asyncio.get_running_loop()
-            # If loop is running, create a task
-            task = loop.create_task(main())
-            return task
-        except RuntimeError:
-            # No running loop, create new one
-            return asyncio.run(main())
+        # Simply run the main function
+        return asyncio.run(main())
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
-        return asyncio.run(main())
+        # Try one more time
+        try:
+            return asyncio.run(main())
+        except Exception as e2:
+            logger.error(f"❌ Second attempt failed: {e2}")
+            raise
 
 if __name__ == "__main__":
     run_bot()
