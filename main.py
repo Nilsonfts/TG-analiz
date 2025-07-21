@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+from analytics_generator import generate_channel_analytics_image
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
@@ -388,18 +389,53 @@ async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     chart_type = query.data.replace("chart_", "")
     
-    messages = {
-        "growth": "📈 <b>График роста подписчиков</b>\n\n🎯 Тренд: Положительный\n📊 30-дневная динамика готова",
-        "activity": "⏰ <b>Активность по часам</b>\n\n🕐 Пик: 12:00, 18:00, 21:00\n📱 Анализ 7 дней",
-        "traffic": "🎯 <b>Источники трафика</b>\n\n🔗 URL: 45%\n🔍 Поиск: 30%\n👥 Другие каналы: 25%",
-        "dashboard": "🎛 <b>Полный дашборд</b>\n\n📊 Все метрики собраны\n✅ Готов к анализу"
-    }
-    
-    await query.edit_message_text(
-        f"{messages.get(chart_type, '📊 Генерируем график...')}\n\n"
-        "🚀 <i>Railway деплой успешен! Графики будут готовы после подключения к каналам.</i>",
-        parse_mode='HTML'
-    )
+    # Если это dashboard - используем полную аналитику
+    if chart_type == "dashboard":
+        try:
+            await query.edit_message_text(
+                "📊 <b>Генерирую полный дашборд...</b>\n\n"
+                "⏳ Собираю данные...",
+                parse_mode='HTML'
+            )
+            
+            # Получаем данные и генерируем изображение
+            real_stats = await get_real_channel_stats()
+            image_buffer = await generate_channel_analytics_image(real_stats)
+            
+            # Отправляем изображение
+            await query.message.reply_photo(
+                photo=image_buffer,
+                caption=(
+                    "🎛 <b>Полный дашборд</b>\n\n"
+                    "📊 Все метрики собраны\n"
+                    "✅ Готов к анализу\n\n"
+                    "💡 Используйте /analiz для обновления"
+                ),
+                parse_mode='HTML'
+            )
+            
+            # Удаляем исходное сообщение
+            await query.delete_message()
+            
+        except Exception as e:
+            await query.edit_message_text(
+                f"❌ Ошибка генерации дашборда: {str(e)[:50]}...\n\n"
+                "💡 Попробуйте команду /analiz",
+                parse_mode='HTML'
+            )
+    else:
+        # Для остальных кнопок показываем текстовые сообщения
+        messages = {
+            "growth": "📈 <b>График роста подписчиков</b>\n\n🎯 Тренд: Положительный\n📊 Используйте /analiz для визуализации",
+            "activity": "⏰ <b>Активность по часам</b>\n\n🕐 Пик: 12:00, 18:00, 21:00\n📱 Анализ 7 дней",
+            "traffic": "🎯 <b>Источники трафика</b>\n\n🔗 URL: 45%\n🔍 Поиск: 30%\n👥 Другие каналы: 25%"
+        }
+        
+        await query.edit_message_text(
+            f"{messages.get(chart_type, '📊 Генерируем график...')}\n\n"
+            "� <i>Для полной визуализации используйте команду /analiz</i>",
+            parse_mode='HTML'
+        )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help"""
@@ -409,6 +445,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 <b>Команды:</b>\n"
         "• /start - Информация о боте\n"
         "• /status - Статус всех систем\n"
+        "• /analiz - 📊 Визуальная аналитика канала\n"
         "• /summary - Сводная статистика\n"
         "• /growth - Анализ роста\n"
         "• /charts - Интерактивные графики\n"
@@ -453,6 +490,57 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{'✅ <b>Все системы работают!</b>' if all([bot_status == '✅ Активен', analytics_status == '✅ Подключена']) else '⚠️ <b>Есть проблемы с системами</b>'}",
         parse_mode='HTML'
     )
+
+async def analiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /analiz - генерирует визуальную аналитику канала"""
+    try:
+        # Отправляем сообщение о начале генерации
+        status_message = await update.message.reply_text(
+            "📊 <b>Генерирую аналитику канала...</b>\n\n"
+            "⏳ Собираю данные через Telethon API\n"
+            "🎨 Создаю визуализацию\n"
+            "📤 Подготавливаю отчет...",
+            parse_mode='HTML'
+        )
+        
+        # Получаем реальные данные канала
+        real_stats = await get_real_channel_stats()
+        
+        # Генерируем изображение
+        image_buffer = await generate_channel_analytics_image(real_stats)
+        
+        # Обновляем статус
+        await status_message.edit_text(
+            "✅ <b>Аналитика готова!</b>\n\n"
+            "📊 Отправляю визуальный отчет...",
+            parse_mode='HTML'
+        )
+        
+        # Отправляем изображение
+        await update.message.reply_photo(
+            photo=image_buffer,
+            caption=(
+                f"📊 <b>Аналитика канала</b>\n\n"
+                f"🗓 <b>Период:</b> Последние 7 дней\n"
+                f"📈 <b>Источник данных:</b> Telethon API\n"
+                f"🎯 <b>Канал ID:</b> <code>{CHANNEL_ID}</code>\n\n"
+                f"💡 <i>Обновите отчет командой /analiz</i>"
+            ),
+            parse_mode='HTML'
+        )
+        
+        # Удаляем статусное сообщение
+        await status_message.delete()
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating analytics: {e}")
+        await update.message.reply_text(
+            "❌ <b>Ошибка генерации аналитики</b>\n\n"
+            f"🔍 <b>Проблема:</b> {str(e)[:100]}\n"
+            "🔧 <b>Решение:</b> Проверьте настройки Telethon\n\n"
+            "💡 Используйте /status для диагностики",
+            parse_mode='HTML'
+        )
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка неизвестных команд"""
@@ -507,6 +595,7 @@ async def main() -> None:
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("analiz", analiz_command))
     application.add_handler(CommandHandler("summary", summary_command))
     application.add_handler(CommandHandler("growth", growth_command))
     application.add_handler(CommandHandler("charts", charts_command))
