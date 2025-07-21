@@ -150,11 +150,71 @@ class BotManager:
             
             @dp.message(Command("start"))
             async def start_command(message: Message):
-                await message.answer("🤖 Telegram Analytics Bot запущен!\n\nСтатус: Базовый режим")
+                await message.answer(
+                    "🤖 <b>Telegram Analytics Bot запущен!</b>\n\n"
+                    "📊 <b>Статус:</b> Базовый режим\n"
+                    "⚡ <b>Режим:</b> Простой бот\n\n"
+                    "📝 <b>Доступные команды:</b>\n"
+                    "/start - Информация о боте\n"
+                    "/status - Текущий статус\n"
+                    "/help - Помощь\n"
+                    "/info - Информация о системе",
+                    parse_mode="HTML"
+                )
             
             @dp.message(Command("status"))
             async def status_command(message: Message):
-                await message.answer(f"📊 Статус: {self.status}\n🕐 Время работы: {time.time() - start_time:.0f}с")
+                uptime = time.time() - start_time
+                await message.answer(
+                    f"📊 <b>Статус системы:</b>\n\n"
+                    f"🟢 <b>Режим:</b> {self.status}\n"
+                    f"🕐 <b>Время работы:</b> {uptime:.0f}с\n"
+                    f"❌ <b>Ошибки:</b> {self.error_count}\n"
+                    f"🤖 <b>ID бота:</b> {bot.id}\n"
+                    f"⚡ <b>Health server:</b> Работает",
+                    parse_mode="HTML"
+                )
+            
+            @dp.message(Command("help"))
+            async def help_command(message: Message):
+                await message.answer(
+                    "🆘 <b>Помощь по боту:</b>\n\n"
+                    "Этот бот предназначен для аналитики Telegram каналов.\n"
+                    "Сейчас работает в базовом режиме.\n\n"
+                    "📝 <b>Команды:</b>\n"
+                    "/start - Запуск бота\n"
+                    "/status - Статус системы\n"
+                    "/help - Эта справка\n"
+                    "/info - Техническая информация",
+                    parse_mode="HTML"
+                )
+            
+            @dp.message(Command("info"))
+            async def info_command(message: Message):
+                await message.answer(
+                    "ℹ️ <b>Техническая информация:</b>\n\n"
+                    "🏗️ <b>Платформа:</b> Railway\n"
+                    "🐍 <b>Python:</b> 3.11\n"
+                    "📚 <b>Aiogram:</b> 3.x\n"
+                    "🌐 <b>Health endpoint:</b> /health\n"
+                    "📊 <b>Status endpoint:</b> /status\n\n"
+                    "🔧 <b>Режимы работы:</b>\n"
+                    "• running_full - Полный функционал\n"
+                    "• running_simple - Базовый режим\n"
+                    "• health_only - Только health check",
+                    parse_mode="HTML"
+                )
+            
+            # Обработчик для всех остальных сообщений
+            @dp.message()
+            async def echo_handler(message: Message):
+                await message.answer(
+                    "🤖 Я получил ваше сообщение!\n\n"
+                    "Используйте команды:\n"
+                    "/start - Начать работу\n"
+                    "/help - Получить помощь\n"
+                    "/status - Проверить статус"
+                )
             
             logger.info("🔄 Starting simple bot...")
             self.bot = bot
