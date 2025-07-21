@@ -24,7 +24,7 @@ RUN pip install --upgrade pip
 COPY . .
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8080
 
 # Command to run the application
-CMD ["python", "minimal_server.py"]
+CMD ["python", "ultra_simple_bot.py"]
