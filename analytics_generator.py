@@ -17,20 +17,31 @@ async def generate_channel_analytics_image(real_stats: Optional[Dict[str, Any]] 
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
     fig.suptitle('📊 Аналитика Telegram-канала', fontsize=20, fontweight='bold', y=0.95)
     
-    # Получаем данные
+    # Получаем данные с защитой от None
     if real_stats and isinstance(real_stats, dict):
         channel_name = real_stats.get('title', 'Неизвестный канал')
-        current_subscribers = real_stats.get('participants_count', 0)
+        current_subscribers = real_stats.get('participants_count', 1000)
+        # Защита от None значений
+        if current_subscribers is None:
+            current_subscribers = 1000
     else:
         channel_name = 'Демо-канал'
+        current_subscribers = 1000
+    
+    # Убеждаемся что current_subscribers это число
+    try:
+        current_subscribers = int(current_subscribers)
+    except (ValueError, TypeError):
         current_subscribers = 1000
     
     # 1. График роста подписчиков
     ax1.set_title('📈 Рост подписчиков (7 дней)', fontsize=14, fontweight='bold')
     
-    # Генерируем демо-данные роста
+    # Генерируем демо-данные роста с защитой от None
     dates = [datetime.now() - timedelta(days=6-i) for i in range(7)]
-    subscribers = [current_subscribers - (50 - i*8) for i in range(7)]
+    # Безопасное вычисление: убеждаемся что используем числа
+    base_count = max(current_subscribers - 50, 100)  # Минимум 100 подписчиков
+    subscribers = [base_count + i*8 for i in range(7)]
     
     ax1.plot(dates, subscribers, marker='o', linewidth=3, markersize=6, color='#2196F3')
     ax1.fill_between(dates, subscribers, alpha=0.3, color='#2196F3')
