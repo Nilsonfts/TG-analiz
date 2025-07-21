@@ -256,13 +256,18 @@ async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
     # Пытаемся получить реальные данные
     real_stats = await get_real_channel_stats()
     
-    if real_stats:
+    if real_stats and isinstance(real_stats, dict) and 'title' in real_stats:
+        title = real_stats.get('title', 'Неизвестный канал')
+        username = real_stats.get('username', 'неизвестно')
+        participants = real_stats.get('participants_count', 0)
+        description = real_stats.get('description', 'Описание недоступно')
+        
         await update.message.reply_text(
             f"📊 <b>Информация о канале</b>\n\n"
-            f"📺 <b>Название:</b> {real_stats['title']}\n"
-            f"🔗 <b>Username:</b> @{real_stats['username']}\n"
-            f"👥 <b>Подписчики:</b> {real_stats['participants_count']:,}\n"
-            f"📝 <b>Описание:</b> {real_stats['description']}\n\n"
+            f"📺 <b>Название:</b> {title}\n"
+            f"🔗 <b>Username:</b> @{username}\n"
+            f"👥 <b>Подписчики:</b> {participants:,}\n"
+            f"📝 <b>Описание:</b> {description}\n\n"
             f"🆔 <b>ID:</b> <code>{CHANNEL_ID}</code>\n"
             f"✅ <b>Статус:</b> Подключен и работает",
             parse_mode='HTML'
@@ -281,19 +286,23 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Пытаемся получить реальные данные
     real_stats = await get_real_channel_stats()
     
-    if real_stats:
+    if real_stats and isinstance(real_stats, dict) and 'title' in real_stats:
         # Показываем реальные данные
         growth_today = "+127" # Временно, пока не добавим историю
         growth_week = "+0.8%" # Временно
         
+        title = real_stats.get('title', 'Канал')
+        participants = real_stats.get('participants_count', 0)
+        username = real_stats.get('username', 'неизвестно')
+        
         await update.message.reply_text(
-            f"📊 <b>Сводка: {real_stats['title']}</b>\n\n"
-            f"👥 Подписчики: {real_stats['participants_count']:,} ({growth_today} за день)\n"
+            f"📊 <b>Сводка: {title}</b>\n\n"
+            f"👥 Подписчики: {participants:,} ({growth_today} за день)\n"
             f"📈 Рост: {growth_week} за неделю\n"
             f"⚡ Просмотры: 45,230 (средние)\n"
             f"🎯 Охват: 78.5% подписчиков\n"
             f"🔄 Вовлеченность: 12.3%\n\n"
-            f"🔗 @{real_stats['username']}\n"
+            f"🔗 @{username}\n"
             f"✅ <i>Реальные данные из Telegram API</i>",
             parse_mode='HTML'
         )
