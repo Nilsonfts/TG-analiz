@@ -20,7 +20,12 @@ RUN pip install --no-cache-dir \
     sqlalchemy[asyncio] \
     alembic \
     pydantic \
-    pydantic-settings
+    pydantic-settings \
+    telethon \
+    cryptg \
+    matplotlib \
+    pandas \
+    aiohttp
 
 # Копируем весь код
 COPY . .
