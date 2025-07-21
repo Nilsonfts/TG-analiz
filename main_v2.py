@@ -117,34 +117,53 @@ async def main():
                telemetr_api=bool(settings.telemetr_api_key),
                tgstat_api=bool(settings.tgstat_api_key))
     
-    # Validate required configuration
-    if not settings.bot_token:
-        logger.error("❌ BOT_TOKEN is required but not configured")
-        logger.info("💡 Set BOT_TOKEN environment variable with your bot token from @BotFather")
-        return 1
-    
-    if not settings.telegram_api_id or not settings.telegram_api_hash:
-        logger.error("❌ TELEGRAM_API_ID and TELEGRAM_API_HASH are required")
-        logger.info("💡 Get API credentials from https://my.telegram.org/apps")
-        return 1
-    
-    if not settings.admin_user_ids:
-        logger.warning("⚠️ No admin users configured - bot will have limited functionality")
-        logger.info("💡 Set ADMIN_USER_IDS environment variable with comma-separated user IDs")
-    
     # Start HTTP server in background thread
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
     logger.info("🌐 HTTP health server started in background")
     
+    # Check if bot token is configured
+    if not settings.bot_token:
+        logger.warning("⚠️ BOT_TOKEN not configured - running in health-only mode")
+        logger.info("💡 Set BOT_TOKEN environment variable to enable bot functionality")
+        logger.info("🏥 Health server is running at /health")
+        
+        # Keep health server running indefinitely
+        try:
+            while True:
+                await asyncio.sleep(60)  # Sleep for 1 minute
+                logger.debug("💓 Health server heartbeat")
+        except KeyboardInterrupt:
+            logger.info("👋 Health server shutting down")
+            return 0
+    
+    # Validate required configuration for bot functionality
+    if not settings.telegram_api_id or not settings.telegram_api_hash:
+        logger.error("❌ TELEGRAM_API_ID and TELEGRAM_API_HASH are required for bot")
+        logger.info("💡 Get API credentials from https://my.telegram.org/apps")
+        logger.info("🏥 Running in health-only mode instead")
+        
+        # Keep health server running indefinitely
+        try:
+            while True:
+                await asyncio.sleep(60)
+                logger.debug("💓 Health server heartbeat")
+        except KeyboardInterrupt:
+            logger.info("👋 Health server shutting down")
+            return 0
+    
+    if not settings.admin_user_ids:
+        logger.warning("⚠️ No admin users configured - bot will have limited functionality")
+        logger.info("💡 Set ADMIN_USER_IDS environment variable with comma-separated user IDs")
+
     # Setup signal handlers for graceful shutdown
     def signal_handler(signum, frame):
         logger.info("📡 Received shutdown signal", signal=signum)
         raise KeyboardInterrupt()
-    
+
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
-    
+
     try:
         # Start the bot
         await start_bot()

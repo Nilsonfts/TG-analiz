@@ -11,9 +11,9 @@ class Settings(BaseSettings):
     """Application settings with environment variable support."""
     
     # Telegram Bot Configuration
-    bot_token: str = Field(..., description="Telegram bot token from @BotFather")
-    telegram_api_id: int = Field(..., description="Telegram API ID from my.telegram.org")
-    telegram_api_hash: str = Field(..., description="Telegram API hash from my.telegram.org")
+    bot_token: str = Field(default="", description="Telegram bot token from @BotFather")
+    telegram_api_id: int = Field(default=0, description="Telegram API ID from my.telegram.org")
+    telegram_api_hash: str = Field(default="", description="Telegram API hash from my.telegram.org")
     
     # Admin Configuration
     admin_user_ids: List[int] = Field(default_factory=list, description="List of admin user IDs")
