@@ -450,7 +450,7 @@ async def get_weekly_smm_data(start_date, end_date):
             is_circle = False
             is_image_story = False
             is_visual_story = False
-
+            
             if hasattr(message, 'media') and message.media:
                 media_type = type(message.media).__name__
                 if 'Document' in media_type and hasattr(message.media, 'document'):
@@ -614,18 +614,19 @@ async def smm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Пересылки: {smm_data['posts_forwards']}\n"
             f"Реакции: {smm_data['posts_reactions']}\n\n"
             
-            f"📺 <b>Визуальный контент (видео+фото)</b>\n"
+            f"📺 <b>Активность сторис</b>\n"
             f"Просмотры: {smm_data['stories_views']:,}\n"
             f"Пересылки: {smm_data['stories_forwards']}\n"
             f"Реакции: {smm_data['stories_reactions']}\n\n"
             
             f"📈 <b>Статистика</b>\n"
             f"Постов за неделю: {smm_data['total_posts']}\n"
-            f"Визуального контента: {smm_data.get('total_stories', 0)}\n"
+            f"Сторис за неделю: {smm_data.get('total_stories', 0)}\n"
             f"Средние просмотры поста: {smm_data['posts_views'] // max(smm_data['total_posts'], 1):,}\n"
             f"Engagement Rate: {((smm_data['posts_reactions'] + smm_data['posts_forwards']) / max(smm_data['current_subscribers'], 1) * 100):.2f}%\n\n"
             
-            f"✅ <i>Данные получены через Telethon API</i>"
+            f"💡 <i>Данные о подписках - оценочные (API-ограничения)</i>\n"
+            f"✅ <i>Статистика постов получена через Telethon API</i>"
         )
         
         # Обновляем сообщение с готовым отчетом
@@ -1157,15 +1158,14 @@ async def daily_report_command(update, context):
         await update.message.reply_text(
             f"📅 <b>Ежедневный отчет</b>\n"
             f"Период: {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
-            f"👥 <b>Подписалось:</b> {analytics['joined']}\n"
-            f"👋 <b>Отписалось:</b> {analytics['left']}\n"
-            f"📝 <b>Постов:</b> {analytics['posts']}\n"
-            f"📺 <b>Визуальный контент (видео+фото):</b> {analytics['stories']}\n"
+            f" <b>Постов:</b> {analytics['posts']}\n"
+            f"📺 <b>Сторис (визуальный контент):</b> {analytics['stories']}\n"
             f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
             f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
-            f"📊 <b>Средний охват визуального контента:</b> {analytics['avg_story_reach']}\n"
-            f"❤️ <b>Средние лайки на визуальный контент:</b> {analytics['avg_story_likes']}\n"
-            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}",
+            f"📊 <b>Средний охват сторис:</b> {analytics['avg_story_reach']}\n"
+            f"❤️ <b>Средние лайки сторис:</b> {analytics['avg_story_likes']}\n"
+            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}\n\n"
+            f"💡 <i>Данные о подписках недоступны через Telegram API для каналов</i>",
             parse_mode='HTML'
         )
     else:
@@ -1192,15 +1192,14 @@ async def monthly_report_command(update, context):
         await update.message.reply_text(
             f"📆 <b>Месячный отчет</b>\n"
             f"Период: {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
-            f"👥 <b>Подписалось:</b> {analytics['joined']}\n"
-            f"👋 <b>Отписалось:</b> {analytics['left']}\n"
-            f"📝 <b>Постов:</b> {analytics['posts']}\n"
-            f"📺 <b>Визуальный контент (видео+фото):</b> {analytics['stories']}\n"
+            f" <b>Постов:</b> {analytics['posts']}\n"
+            f"📺 <b>Сторис (визуальный контент):</b> {analytics['stories']}\n"
             f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
             f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
-            f"📊 <b>Средний охват визуального контента:</b> {analytics['avg_story_reach']}\n"
-            f"❤️ <b>Средние лайки на визуальный контент:</b> {analytics['avg_story_likes']}\n"
-            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}",
+            f"📊 <b>Средний охват сторис:</b> {analytics['avg_story_reach']}\n"
+            f"❤️ <b>Средние лайки сторис:</b> {analytics['avg_story_likes']}\n"
+            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}\n\n"
+            f"💡 <i>Данные о подписках недоступны через Telegram API для каналов</i>",
             parse_mode='HTML'
         )
     else:
