@@ -1055,44 +1055,6 @@ async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='HTML'
             )
         else:
-                
-                f"📊 <b>Активность за неделю:</b>\n"
-                f"• Публикаций: {week_posts}\n"
-                f"• Средний охват: {week_avg_reach:,}\n"
-                f"• Рейтинг ER: {er_rating}\n\n"
-                
-                f"� <b>Сравнение за месяц:</b>\n"
-                f"• Публикаций: {month_posts}\n"
-                f"• Средний охват: {month_avg_reach:,}\n"
-                f"• Изменение охвата: {((week_avg_reach - month_avg_reach/4) / max(month_avg_reach/4, 1) * 100):+.1f}%\n\n"
-                
-                f"⏰ <b>Лучшие часы для публикаций:</b>\n"
-                f"{best_hours_text}\n"
-                
-                f"💡 <b>Рекомендации для роста:</b>\n"
-                f"• Публикуйте в лучшие часы\n"
-                f"• Цель: {week_posts * 2} постов в неделю\n"
-                f"• Ожидаемый рост: +{estimated_daily_growth}/день\n\n"
-                
-                f"✅ <i>Данные на основе реальной аналитики Telethon</i>",
-                parse_mode='HTML'
-            )
-        elif (week_data and week_data.get('error')) or (month_data and month_data.get('error')):
-            # Обработка ошибок доступа
-            error_msg = week_data.get('message', 'Неизвестная ошибка') if week_data and week_data.get('error') else month_data.get('message', 'Неизвестная ошибка')
-            await update.message.reply_text(
-                f"📈 <b>Анализ роста: {channel_name}</b>\n\n"
-                f"👥 <b>Текущее количество:</b> {current_count:,}\n\n"
-                f"❌ <b>Проблема с доступом к данным:</b>\n"
-                f"🔍 {error_msg}\n\n"
-                f"🔧 <b>Решения:</b>\n"
-                f"• Проверьте SESSION_STRING в Railway Variables\n"
-                f"• Убедитесь что аккаунт подписан на канал\n"
-                f"• CHANNEL_ID: <code>{CHANNEL_ID}</code>\n\n"
-                f"💡 <i>Канал найден, но нет доступа к сообщениям</i>",
-                parse_mode='HTML'
-            )
-        else:
             # Если нет аналитических данных
             await update.message.reply_text(
                 f"📈 <b>Анализ роста: {channel_name}</b>\n\n"
