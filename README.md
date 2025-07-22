@@ -1,11 +1,30 @@
-# 🤖 TG-analiz - Telegram Channel Analytics Bot
+# 🤖 TG-analiz - НОВАЯ РАБОЧАЯ ВЕРСИЯ
 
 [![Railway Deploy](https://img.shields.io/badge/Railway-Deploy-blueviolet?logo=railway&logoColor=white)](https://railway.app/new/template?template=https://github.com/Nilsonfts/TG-analiz)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)](https://python.org)
 [![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-blue?logo=telegram&logoColor=white)](https://core.telegram.org/bots)
-[![CI/CD Pipeline](https://github.com/Nilsonfts/TG-analiz/actions/workflows/ci.yml/badge.svg)](https://github.com/Nilsonfts/TG-analiz/actions/workflows/ci.yml)
 
-> **Production-ready Telegram bot for channel analytics with Railway deployment support**
+> **🚀 НОВАЯ РАБОЧАЯ ВЕРСИЯ с исправленными проблемами и реальными данными**
+
+## ✅ ЧТО ИСПРАВЛЕНО В НОВОЙ ВЕРСИИ:
+
+### 🔧 **КРИТИЧЕСКИЕ ИСПРАВЛЕНИЯ:**
+- ✅ **Исправлена переменная `story_forwards`** - была не инициализирована 
+- ✅ **Команда `/summary`** - теперь показывает реальные данные вместо фиксированных
+- ✅ **Команда `/insights`** - расчеты на основе реальной аналитики
+- ✅ **Команда `/growth`** - прогнозы на основе активности канала
+- ✅ **Команда `/channel_info`** - улучшенное получение информации о канале
+- ✅ **Команда `/smm`** - исправлена терминология и добавлены объяснения API
+
+### 📺 **ТЕРМИНОЛОГИЯ "STORIES" → "СТОРИС":**
+- ✅ Унифицирована русскоязычная терминология
+- ✅ Все отчеты используют "СТОРИС" вместо "Stories"
+- ✅ Обновлено логирование и сообщения
+
+### 📊 **ОБЪЯСНЕНИЯ ОГРАНИЧЕНИЙ API:**
+- ✅ Во всех отчетах добавлены пояснения об ограничениях Telegram API
+- ✅ Пользователи понимают откуда берутся данные
+- ✅ Четкое разделение: реальные данные vs оценочные
 
 ## 🚀 Quick Deploy
 
@@ -15,39 +34,112 @@
 
 1. Click "Deploy on Railway" ↑
 2. Add `BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
-3. Your bot is live! 🎉
-
-**Detailed setup:** See [QUICK_START.md](QUICK_START.md)
-
-## 🚀 Features
-
-- **Real-time Analytics** - Live channel statistics via Telethon API
-- **Interactive Commands** - Rich command interface with inline keyboards  
-- **Railway Ready** - Optimized for Railway deployment with health checks
-- **Type Safe** - Full typing support with mypy strict mode
-- **Test Coverage** - Comprehensive test suite with 90%+ coverage
-- **CI/CD Pipeline** - Automated testing, linting, and deployment
+3. Add `CHANNEL_ID`, `API_ID`, `API_HASH`, `SESSION_STRING`
+4. Your bot is live! 🎉
 
 ## 🤖 Команды бота
 
 - `/start` - Информация о боте и статус
 - `/status` - Проверка всех систем
-- `/summary` - Краткая сводка канала
-- `/growth` - Анализ роста подписчиков  
-- `/insights` - Маркетинговые инсайты
-- `/analiz` - Визуальная аналитика (PNG графики)
+- `/summary` - 📊 **Краткая сводка канала (РЕАЛЬНЫЕ ДАННЫЕ)**
+- `/growth` - 📈 **Анализ роста с прогнозами (РЕАЛЬНЫЕ ДАННЫЕ)**
+- `/insights` - 🧠 **Маркетинговые инсайты (РЕАЛЬНЫЕ ДАННЫЕ)**
+- `/analiz` - 📊 Визуальная аналитика (PNG графики)
 - `/charts` - Интерактивные графики
-- `/smm` - 📊 Еженедельный SMM-отчет (понедельник-воскресенье)
-- `/daily_report` - 📅 Ежедневный отчет (06:00-06:00)
-- `/monthly_report` - 📆 Месячный отчет (30 дней)
-- `/channel_info` - Информация о канале
+- `/smm` - 📊 **Еженедельный SMM-отчет (ИСПРАВЛЕН)**
+- `/daily_report` - 📅 Ежедневный отчет
+- `/monthly_report` - 📆 Месячный отчет
+- `/channel_info` - **Информация о канале (УЛУЧШЕНО)**
 - `/help` - Справка по командам
+
+## 📊 Что определяется как "СТОРИС":
+
+В Telegram каналах **"СТОРИС"** = **визуальный контент**:
+- 📹 **Короткие видео** (≤60 секунд)
+- 📸 **Фото без текста** или с коротким текстом (<50 символов)
+- 🎥 **Кружки** = круглые видео-сообщения (выделены отдельно)
+
+## ⚠️ Ограничения Telegram API:
+
+- **Точные подписки/отписки** недоступны через публичный API
+- **Уведомления** недоступны через публичный API  
+- **СТОРИС** определяются алгоритмом (указано выше)
+- **Данные о подписках** - оценочные, на основе активности
 
 ## 🛠 Setup
 
 ### Prerequisites
 
 - Python 3.12+
+- Railway Account (free tier available)
+- Telegram Bot Token from [@BotFather](https://t.me/BotFather)
+- Telegram API credentials from [my.telegram.org/apps](https://my.telegram.org/apps)
+
+### Environment Variables
+
+Добавьте в Railway Variables:
+
+```env
+# Обязательные
+BOT_TOKEN=your_bot_token_from_botfather
+CHANNEL_ID=your_channel_id
+API_ID=your_api_id
+API_HASH=your_api_hash
+SESSION_STRING=your_session_string
+
+# Опциональные  
+ADMIN_USERS=196614680,208281210,1334453330
+TIMEZONE=Europe/Moscow
+REPORTS_CHAT_ID=196614680
+```
+
+## 📈 Features
+
+- **Real-time Analytics** - Live channel statistics via Telethon API
+- **Interactive Commands** - Rich command interface with inline keyboards  
+- **Railway Ready** - Optimized for Railway deployment with health checks
+- **Fixed Data** - All commands now show real data instead of hardcoded values
+- **API Explanations** - Clear explanations of Telegram API limitations
+- **Russian Terminology** - Consistent use of "СТОРИС" throughout the app
+
+## 🔧 Technical Improvements
+
+- ✅ Fixed uninitialized `story_forwards` variable
+- ✅ Improved `get_real_channel_stats()` function
+- ✅ Real analytics data in all commands
+- ✅ Unified terminology across all reports
+- ✅ Added API limitation explanations
+- ✅ Enhanced error handling and logging
+
+## 🚀 Deployment
+
+1. **Fork this repository**
+2. **Deploy to Railway:**
+   - Connect your GitHub account
+   - Import your forked repository
+   - Add environment variables
+   - Deploy!
+
+3. **Test your bot:**
+   ```
+   /start - Check if bot responds
+   /status - Verify all systems
+   /summary - Test real data collection
+   ```
+
+## 📞 Support
+
+If you encounter any issues:
+
+1. Check `/status` command for diagnostics
+2. Verify all environment variables are set
+3. Check Railway logs for errors
+
+---
+
+**🎉 НОВАЯ РАБОЧАЯ ВЕРСИЯ готова к использованию!**
+
+*Все основные проблемы исправлены, данные теперь реальные, терминология унифицирована.*
 - Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 - Telegram API credentials (api_id, api_hash)
 
