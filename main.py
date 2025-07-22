@@ -1410,100 +1410,6 @@ async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
 
-async def export_google_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /export_google - экспорт в Google Sheets"""
-    await update.message.reply_text(
-        "📊 <b>Экспорт в Google Sheets</b>\n\n"
-        "🚧 <b>В разработке!</b>\n\n"
-        "📋 <b>Что будет доступно:</b>\n"
-        "• Автоматическое создание таблицы\n"
-        "• Ежедневное обновление данных\n"
-        "• Интерактивные графики\n"
-        "• Возможность совместного доступа\n\n"
-        "💡 <b>Сейчас доступно:</b>\n"
-        "• /analiz - Визуальные графики\n"
-        "• /charts - Детальная аналитика\n"
-        "• /export_csv - Экспорт в CSV\n\n"
-        "🔔 <i>Уведомим о готовности функции!</i>",
-        parse_mode='HTML'
-    )
-
-async def export_csv_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /export_csv - экспорт в CSV"""
-    from datetime import datetime, timedelta
-    import io
-    
-    # Получаем данные
-    tz = pytz.timezone('Europe/Moscow')
-    end_date = datetime.now(tz)
-    start_date = end_date - timedelta(days=30)  # За месяц
-    
-    status_msg = await update.message.reply_text(
-        "📊 <b>Генерирую CSV отчет...</b>\n\n"
-        "📅 Период: 30 дней\n"
-        "📋 Собираю данные...",
-        parse_mode='HTML'
-    )
-    
-    analytics_data = await get_channel_analytics_data(start_date, end_date)
-    real_stats = await get_real_channel_stats()
-    
-    if analytics_data and analytics_data.get('access_confirmed') and real_stats:
-        # Создаем CSV контент
-        csv_content = "Parameter,Value,Period\n"
-        csv_content += f"Channel Name,{real_stats.get('title', 'Unknown')},Current\n"
-        csv_content += f"Subscribers,{real_stats.get('participants_count', 0)},Current\n"
-        csv_content += f"Posts,{analytics_data.get('posts', 0)},30 days\n"
-        csv_content += f"Stories,{analytics_data.get('stories', 0)},30 days\n"
-        csv_content += f"Average Reach,{analytics_data.get('avg_post_reach', 0)},30 days\n"
-        csv_content += f"Engagement Rate,{analytics_data.get('er_numeric', 0)},30 days\n"
-        csv_content += f"Total Views,{analytics_data.get('total_views', 0)},30 days\n"
-        csv_content += f"Total Reactions,{analytics_data.get('total_reactions', 0)},30 days\n"
-        csv_content += f"Total Forwards,{analytics_data.get('total_forwards', 0)},30 days\n"
-        csv_content += f"Messages Analyzed,{analytics_data.get('message_count', 0)},30 days\n"
-        csv_content += f"Export Date,{end_date.strftime('%Y-%m-%d %H:%M')},Current\n"
-        
-        # Создаем файл
-        csv_buffer = io.BytesIO()
-        csv_buffer.write(csv_content.encode('utf-8'))
-        csv_buffer.seek(0)
-        
-        await status_msg.edit_text(
-            "✅ <b>CSV отчет готов!</b>\n\n"
-            "📊 Отправляю файл...",
-            parse_mode='HTML'
-        )
-        
-        # Отправляем файл
-        channel_name = real_stats.get('title', 'Channel').replace(' ', '_').replace('|', '')
-        filename = f"analytics_{channel_name}_{end_date.strftime('%Y%m%d')}.csv"
-        
-        await update.message.reply_document(
-            document=csv_buffer,
-            filename=filename,
-            caption=(
-                f"📊 <b>Аналитика канала: {real_stats.get('title', 'Неизвестный')}</b>\n\n"
-                f"📅 Период: {start_date.strftime('%d.%m')} - {end_date.strftime('%d.%m.%Y')}\n"
-                f"📋 Параметров: 10\n"
-                f"🎯 Формат: CSV (UTF-8)\n\n"
-                f"💡 <i>Откройте в Excel или Google Sheets</i>"
-            ),
-            parse_mode='HTML'
-        )
-        
-        await status_msg.delete()
-        
-    else:
-        await status_msg.edit_text(
-            "❌ <b>Не удалось создать CSV отчет</b>\n\n"
-            "🔧 <b>Возможные причины:</b>\n"
-            "• Нет доступа к данным канала\n"
-            "• Telethon не настроен\n"
-            "• Ошибка анализа данных\n\n"
-            "💡 Используйте /charts для диагностики",
-            parse_mode='HTML'
-        )
-
 async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка нажатий кнопок графиков"""
     query = update.callback_query
@@ -1903,11 +1809,11 @@ async def monthly_report_command(update, context):
             f"✅ <i>Отчет создан: {now.strftime('%d.%m.%Y %H:%M')} | Telethon API</i>",
             parse_mode='HTML'
         )
-    elif analytics and analytics.get('error'):
-        await status_msg.edit_text(
-            f"📆 <b>Месячный отчет</b>\n"
-            f"� <b>Месяц:</b> {month_name} {start.year}\n"
-            f"�📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
+        elif analytics and analytics.get('error'):
+            await status_msg.edit_text(
+                f"📆 <b>Месячный отчет</b>\n"
+                f"📅 <b>Месяц:</b> {month_name} {start.year}\n"
+                f"📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
             f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} ({days_in_month} дней)\n\n"
             f"❌ <b>Проблема с доступом к данным:</b>\n"
             f"🔍 {analytics.get('message', 'Неизвестная ошибка')}\n\n"
@@ -1918,20 +1824,20 @@ async def monthly_report_command(update, context):
             f"• Используйте /status для полной диагностики",
             parse_mode='HTML'
         )
-    else:
-        await status_msg.edit_text(
-            f"📆 <b>Месячный отчет</b>\n"
-            f"📅 <b>Месяц:</b> {month_name} {start.year}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} ({days_in_month} дней)\n\n"
-            f"❌ <b>Не удалось получить данные за месяц</b>\n\n"
-            f"🔧 <b>Возможные причины:</b>\n"
-            f"• Telethon не настроен\n"
-            f"• Нет доступа к каналу\n"
-            f"• Слишком большой объем данных\n"
-            f"• Технические ограничения API\n\n"
-            f"💡 Попробуйте /daily_report или /charts для меньших периодов",
-            parse_mode='HTML'
-        )
+        else:
+            await status_msg.edit_text(
+                f"📆 <b>Месячный отчет</b>\n"
+                f"📅 <b>Месяц:</b> {month_name} {start.year}\n"
+                f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} ({days_in_month} дней)\n\n"
+                f"❌ <b>Не удалось получить данные за месяц</b>\n\n"
+                f"🔧 <b>Возможные причины:</b>\n"
+                f"• Telethon не настроен\n"
+                f"• Нет доступа к каналу\n"
+                f"• Слишком большой объем данных\n"
+                f"• Технические ограничения API\n\n"
+                f"💡 Попробуйте /daily_report или /charts для меньших периодов",
+                parse_mode='HTML'
+            )
     
     except Exception as e:
         logger.error(f"❌ Error in monthly report: {e}")
