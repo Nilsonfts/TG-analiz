@@ -198,20 +198,28 @@ async def get_channel_analytics_data(start_date, end_date):
         
         logger.info(f"✅ Канал найден: {getattr(channel, 'title', 'Неизвестный канал')}")
         
-        # Счетчики для аналитики
-        joined = 0  # Будет рассчитываться по изменению количества участников
-        left = 0    # Аналогично
-        posts = 0
-        stories = 0
-        circles = 0
-        total_views = 0
-        total_reactions = 0  # Все реакции
-        posts_reactions = 0  # Реакции только на посты
-        total_forwards = 0
-        story_views = 0
-        story_likes = 0  # Реакции на stories/видео
-        story_forwards = 0  # ✅ ИСПРАВЛЕНО: Добавлена недостающая переменная
-        posts_by_hour = {}
+        # Счетчики для аналитики (ОБНОВЛЕНО ПО ТЗ)
+        count_posts = 0      # Обычные посты (text + media, но не кружки/сторис/репосты)
+        count_circles = 0    # Кружки (video_note)
+        count_stories = 0    # Сторис (короткие видео + фото без текста)
+        
+        total_views = 0           # Общие просмотры постов
+        total_reactions = 0       # Все реакции на все типы контента
+        posts_reactions = 0       # Реакции только на обычные посты
+        circles_reactions = 0     # Реакции на кружки
+        stories_reactions = 0     # Реакции на сторис
+        
+        total_forwards = 0        # Пересылки постов
+        story_views = 0          # Просмотры сторис
+        story_forwards = 0       # Пересылки сторис
+        
+        # Для анализа лучших часов
+        posts_by_hour = {}       # {час: {"views": int, "reactions": int, "posts": int, "er": float}}
+        
+        # Списки для точного подсчета средних
+        posts_with_reactions = []     # Посты с реакциями для правильного среднего
+        circles_with_reactions = []   # Кружки с реакциями
+        stories_with_reactions = []   # Сторис с реакциями
         
         # Получаем текущее количество подписчиков для правильного расчета ER
         try:
@@ -271,172 +279,158 @@ async def get_channel_analytics_data(start_date, end_date):
             
             message_count += 1
             
-            # ПРОФЕССИОНАЛЬНАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ КОНТЕНТА (20-летний опыт)
-            is_video_story = False
-            is_circle = False
-            is_image_story = False
+            # НОВАЯ ЛОГИКА ПО ТЕХНИЧЕСКОМУ ЗАДАНИЮ
             
-            # В Telegram каналах "Stories" = короткие видео и фото посты
+            # 1. Исключаем репосты (forward_from или fwd_from)
+            if message.forward_from or message.fwd_from:
+                continue  # skip repost
+            
+            # 2. Исключаем запланированные сообщения
+            if hasattr(message, 'is_scheduled') and message.is_scheduled:
+                continue
+            
+            # 3. Определяем тип контента
+            content_type = 'post'  # по умолчанию
+            
             if hasattr(message, 'media') and message.media:
-                media_type = type(message.media).__name__
-                
-                # Видео-контент (считаем как "video stories")
-                if 'Video' in media_type or 'Document' in media_type:
-                    if hasattr(message.media, 'document'):
-                        # Проверяем атрибуты документа
-                        if hasattr(message.media.document, 'attributes'):
-                            for attr in message.media.document.attributes:
-                                # Кружки (круглые видео)
-                                if hasattr(attr, 'round_message') and attr.round_message:
-                                    is_circle = True
-                                    circles += 1
-                                    break
-                                # Видео до 60 секунд считаем как "video story"
-                                elif hasattr(attr, 'duration') and attr.duration and attr.duration <= 60:
-                                    is_video_story = True
-                                    stories += 1
-                                    break
-                            else:
-                                # Если не кружок и не короткое видео - обычный пост
-                                posts += 1
-                        else:
-                            posts += 1
+                # Кружки (video_note)
+                if hasattr(message.media, 'document') and hasattr(message.media.document, 'attributes'):
+                    for attr in message.media.document.attributes:
+                        if hasattr(attr, 'round_message') and attr.round_message:
+                            content_type = 'circle'
+                            count_circles += 1
+                            break
                     else:
-                        posts += 1
-                
-                # Фото-контент (считаем как "image stories" если без текста)
-                elif 'Photo' in media_type:
-                    # Если у фото нет текста или текст короткий - это "визуальная история"
+                        # Проверяем на сторис (короткие видео ≤60 сек)
+                        for attr in message.media.document.attributes:
+                            if hasattr(attr, 'duration') and attr.duration and attr.duration <= 60:
+                                content_type = 'story'
+                                count_stories += 1
+                                break
+                        else:
+                            content_type = 'post'
+                            count_posts += 1
+                # Фото без текста или с коротким текстом = сторис
+                elif 'Photo' in type(message.media).__name__:
                     message_text = getattr(message, 'text', '') or ''
                     if len(message_text.strip()) < 50:
-                        is_image_story = True
-                        stories += 1
+                        content_type = 'story'
+                        count_stories += 1
                     else:
-                        posts += 1
-                        
-                # Другие медиа (стикеры, документы и т.д.)
+                        content_type = 'post'
+                        count_posts += 1
                 else:
-                    posts += 1
+                    content_type = 'post'
+                    count_posts += 1
             else:
-                # Текстовые сообщения всегда посты
-                posts += 1
-                
-            # Определяем является ли это "story" (видео или изображение)
-            is_story = is_video_story or is_image_story
+                # Текстовые сообщения = посты
+                content_type = 'post'
+                count_posts += 1
             
-            hour = message.date.hour
+            # 4. Считаем просмотры (только если views > 0)
+            views = getattr(message, 'views', 0) or 0
+            if views > 0:
+                if content_type == 'post':
+                    total_views += views
+                elif content_type == 'story':
+                    story_views += views
             
-            # Статистика по часам (только для обычных постов)
-            if not (is_story or is_circle):
-                if hour not in posts_by_hour:
-                    posts_by_hour[hour] = {"views": 0, "reactions": 0, "posts": 0}
-                posts_by_hour[hour]["posts"] += 1
+            # 5. Считаем пересылки
+            forwards = getattr(message, 'forwards', 0) or 0
+            if forwards > 0:
+                if content_type == 'post':
+                    total_forwards += forwards
+                elif content_type == 'story':
+                    story_forwards += forwards
             
-            # Считаем просмотры
-            if hasattr(message, 'views') and message.views:
-                if is_story:
-                    story_views += message.views
-                elif not is_circle:
-                    total_views += message.views
-                    if hour in posts_by_hour:
-                        posts_by_hour[hour]["views"] += message.views
-            
-            # Считаем пересылки
-            if hasattr(message, 'forwards') and message.forwards:
-                if is_story:
-                    story_forwards += message.forwards
-                else:
-                    total_forwards += message.forwards
-            
-            # Считаем реакции с разделением на посты и stories
-            if hasattr(message, 'reactions') and message.reactions:
-                message_reactions = 0
+            # 6. Считаем реакции (полный список, включая кастомные эмодзи)
+            message_reactions = 0
+            if hasattr(message, 'reactions') and message.reactions and message.reactions.results:
                 for reaction in message.reactions.results:
                     message_reactions += reaction.count
-                
-                # Добавляем к общему счетчику
+            
+            # Добавляем реакции к соответствующим счетчикам
+            if message_reactions > 0 and views > 0:  # Учитываем только посты с просмотрами
                 total_reactions += message_reactions
                 
-                if is_story:
-                    story_likes += message_reactions  # Реакции на видео-контент
-                else:
-                    posts_reactions += message_reactions  # Реакции на обычные посты
-                    if not is_circle and hour in posts_by_hour:
-                        posts_by_hour[hour]["reactions"] += message_reactions
+                if content_type == 'post':
+                    posts_reactions += message_reactions
+                    posts_with_reactions.append(message_reactions)
+                elif content_type == 'circle':
+                    circles_reactions += message_reactions
+                    circles_with_reactions.append(message_reactions)
+                elif content_type == 'story':
+                    stories_reactions += message_reactions
+                    stories_with_reactions.append(message_reactions)
+            
+            # 7. Анализ по часам (только для обычных постов)
+            if content_type == 'post' and views > 0:
+                hour = message.date.hour
+                if hour not in posts_by_hour:
+                    posts_by_hour[hour] = {"views": 0, "reactions": 0, "posts": 0, "total_engagement": 0}
+                
+                posts_by_hour[hour]["posts"] += 1
+                posts_by_hour[hour]["views"] += views
+                posts_by_hour[hour]["reactions"] += message_reactions
+                posts_by_hour[hour]["total_engagement"] += message_reactions + forwards
         
         logger.info(f"📊 Проанализировано сообщений: {message_count}")
         
-        # ПРАВИЛЬНЫЕ МАРКЕТИНГОВЫЕ РАСЧЕТЫ
+        # НОВЫЕ РАСЧЕТЫ ПО ТЕХНИЧЕСКОМУ ЗАДАНИЮ
         
-        # 1. ER (Engagement Rate) - ИСПРАВЛЕН!
-        # ER = Среднее количество взаимодействий на пост / Подписчики × 100%
-        if current_subscribers > 0 and posts > 0:
-            # Общие взаимодействия = реакции + пересылки
-            total_engagement = total_reactions + total_forwards
-            avg_engagement_per_post = total_engagement / posts
-            er = (avg_engagement_per_post / current_subscribers) * 100
+        # 1. ER (Engagement Rate) - НОВАЯ ФОРМУЛА: (реакции / просмотры) * 100%
+        if total_views > 0:
+            er = (total_reactions / total_views) * 100
             er_formatted = f"{er:.2f}%"
         else:
             er_formatted = "0.00%"
             er = 0.0
         
-        # 2. VTR (View Through Rate) 
-        if current_subscribers > 0 and posts > 0:
-            avg_views_per_post = total_views / posts
+        # 2. VTR (View Through Rate) - среднее отношение просмотров к подписчикам
+        if current_subscribers > 0 and count_posts > 0:
+            avg_views_per_post = total_views / count_posts
             vtr = (avg_views_per_post / current_subscribers) * 100
             vtr_formatted = f"{vtr:.1f}%"
         else:
             vtr_formatted = "0.0%"
             vtr = 0.0
         
-        # 3. Температура канала
-        if current_subscribers >= 100000:
-            temp_score = min(5, (er / 3.0 + vtr / 50.0) * 2.5)
-        elif current_subscribers >= 10000:
-            temp_score = min(5, (er / 7.0 + vtr / 70.0) * 2.5)
-        elif current_subscribers >= 1000:
-            temp_score = min(5, (er / 15.0 + vtr / 90.0) * 2.5)
-        else:
-            temp_score = min(5, (er / 20.0 + vtr / 100.0) * 2.5)
+        # 3. Средние показатели (только для постов с реакциями/просмотрами)
+        avg_post_reach = total_views // max(count_posts, 1) if count_posts > 0 else 0
+        avg_story_reach = story_views // max(count_stories, 1) if count_stories > 0 else 0
         
+        # Средние реакции (только на посты с реакциями)
+        avg_post_reactions = sum(posts_with_reactions) // len(posts_with_reactions) if posts_with_reactions else 0
+        avg_circle_reactions = sum(circles_with_reactions) // len(circles_with_reactions) if circles_with_reactions else 0
+        avg_story_reactions = sum(stories_with_reactions) // len(stories_with_reactions) if stories_with_reactions else 0
+        
+        # 4. Анализ лучших часов с новой формулой ER
+        best_hours = []
+        if posts_by_hour:
+            hour_ers = {}
+            for hour, stats in posts_by_hour.items():
+                if stats["views"] > 0 and stats["reactions"] > 0:
+                    hour_er = (stats["reactions"] / stats["views"]) * 100
+                    hour_ers[hour] = hour_er
+            
+            # Топ-3 часа с лучшим ER
+            sorted_hours = sorted(hour_ers.items(), key=lambda x: x[1], reverse=True)[:3]
+            best_hours = [(f"{hour:02d}:00–{(hour+1)%24:02d}:00", f"{er_val:.1f}%") for hour, er_val in sorted_hours]
+        
+        # 5. Температура канала (обновленная формула)
+        if total_views > 0:
+            temp_score = min(5, (er / 2.0) + (vtr / 30.0))
+        else:
+            temp_score = 0
+            
         fire_count = int(temp_score)
         temperature = "🔥" * fire_count + "⬜" * (5 - fire_count)
         
-        # 4. Рейтинг ER
-        if current_subscribers >= 100000:
-            if er >= 3: er_rating = "🔥 Отлично"
-            elif er >= 1.5: er_rating = "✅ Хорошо"
-            elif er >= 1: er_rating = "⚠️ Средне"
-            else: er_rating = "❌ Плохо"
-        elif current_subscribers >= 10000:
-            if er >= 7: er_rating = "🔥 Отлично"
-            elif er >= 4: er_rating = "✅ Хорошо"
-            elif er >= 2: er_rating = "⚠️ Средне"
-            else: er_rating = "❌ Плохо"
-        elif current_subscribers >= 1000:
-            if er >= 15: er_rating = "🔥 Отлично"
-            elif er >= 10: er_rating = "✅ Хорошо"
-            elif er >= 5: er_rating = "⚠️ Средне"
-            else: er_rating = "❌ Плохо"
-        else:
-            if er >= 20: er_rating = "🔥 Отлично"
-            elif er >= 15: er_rating = "✅ Хорошо"
-            elif er >= 10: er_rating = "⚠️ Средне"
-            else: er_rating = "❌ Плохо"
-        
-        # 5. Анализ лучших часов
-        best_hours = []
-        if posts_by_hour:
-            hour_er = {}
-            for hour, stats in posts_by_hour.items():
-                if stats["posts"] > 0:
-                    avg_reactions = stats["reactions"] / stats["posts"]
-                    hour_er_val = (avg_reactions / current_subscribers) * 100
-                    hour_er[hour] = hour_er_val
-            
-            # Топ-3 часа
-            sorted_hours = sorted(hour_er.items(), key=lambda x: x[1], reverse=True)[:3]
-            best_hours = [(f"{hour:02d}:00-{hour+1:02d}:00", f"{er_val:.1f}%") for hour, er_val in sorted_hours]
+        # 6. Рейтинг ER (обновленные пороги для новой формулы)
+        if er >= 5: er_rating = "🔥 Отлично"
+        elif er >= 3: er_rating = "✅ Хорошо"
+        elif er >= 1.5: er_rating = "⚠️ Средне"
+        else: er_rating = "❌ Плохо"
         
         # Рассчитываем средние значения
         avg_post_reach = total_views // posts if posts > 0 else 0
@@ -1578,6 +1572,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /daily_report - 📅 Ежедневный отчет\n"
         "• /week_report - 📊 Еженедельный отчет\n"
         "• /monthly_report - 📆 Месячный отчет\n"
+        "• /export_csv - 📄 Экспорт в CSV (30 дней)\n"
+        "• /export_google - 📊 Данные для Google Sheets\n"
         "• /channel_info - Информация о канале\n"
         "• /help - Эта справка\n\n"
         "⚠️ <b>Ограничения Telegram API:</b>\n"
@@ -1586,6 +1582,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• СТОРИС определяются алгоритмом:\n"
         "  - Короткие видео (≤60 сек)\n"
         "  - Фото без текста или с коротким текстом\n\n"
+        "📤 <b>Экспорт данных:</b>\n"
+        "• CSV - готовый файл для Excel\n"
+        "• Google Sheets - форматированные данные для вставки\n"
+        "• Период экспорта: последние 30 дней\n\n"
         "🔧 <b>Настройка:</b>\n"
         "1. ✅ Railway деплой работает\n"
         "2. 🔄 Добавьте переменные окружения\n"
@@ -2029,6 +2029,193 @@ async def week_report_command(update, context):
             f"• Нет доступа к каналу\n"
             f"• Технические проблемы с API\n\n"
             f"💡 Используйте /status для диагностики",
+            parse_mode='HTML'
+        )
+
+async def export_csv_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /export_csv — экспорт данных в CSV формат за последние 30 дней"""
+    from datetime import datetime, timedelta
+    import pytz
+    import csv
+    import io
+    
+    # Временная зона
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    
+    # Последние 30 дней
+    end_date = now
+    start_date = now - timedelta(days=30)
+    
+    # Отправляем статус
+    status_msg = await update.message.reply_text(
+        "📊 <b>Генерирую CSV экспорт...</b>\n\n"
+        f"📅 Период: {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}\n"
+        "⏳ Собираю данные...",
+        parse_mode='HTML'
+    )
+    
+    try:
+        # Получаем аналитику за период
+        analytics = await get_channel_analytics_data(start_date, end_date)
+        
+        if not analytics or not analytics.get('access_confirmed'):
+            await status_msg.edit_text(
+                "❌ Не удалось получить данные для экспорта\n"
+                "🔧 Проверьте доступ к каналу и настройки API",
+                parse_mode='HTML'
+            )
+            return
+        
+        # Создаем CSV в памяти
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        
+        # Заголовки CSV
+        csv_writer.writerow([
+            'Период',
+            'Канал',
+            'Подписчики',
+            'Постов',
+            'Видео-контента',
+            'Кружков',
+            'Охват постов',
+            'Охват видео',
+            'Лайки видео',
+            'Просмотры всего',
+            'Реакции постов',
+            'Реакции видео',
+            'ER (%)',
+            'VTR (%)',
+            'Температура',
+            'Лучшие часы'
+        ])
+        
+        # Данные
+        csv_writer.writerow([
+            f"{start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}",
+            analytics.get('title', 'Неизвестный'),
+            analytics.get('current_subscribers', 0),
+            analytics.get('posts', 0),
+            analytics.get('stories', 0),
+            analytics.get('circles', 0),
+            analytics.get('avg_post_reach', 0),
+            analytics.get('avg_story_reach', 0),
+            analytics.get('avg_story_likes', 0),
+            analytics.get('total_views', 0),
+            analytics.get('posts_reactions', 0),
+            analytics.get('story_likes', 0),
+            analytics.get('er_numeric', 0),
+            analytics.get('vtr', 'N/A'),
+            analytics.get('temperature', 'N/A'),
+            ', '.join(analytics.get('best_hours', []))
+        ])
+        
+        # Конвертируем в байты для отправки
+        csv_buffer.seek(0)
+        csv_bytes = io.BytesIO(csv_buffer.getvalue().encode('utf-8-sig'))  # BOM для Excel
+        csv_bytes.name = f"analytics_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv"
+        
+        # Отправляем файл
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=csv_bytes,
+            filename=f"analytics_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+            caption=f"📊 <b>CSV Экспорт данных</b>\n\n"
+                   f"📅 Период: {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}\n"
+                   f"📺 Канал: {analytics.get('title', 'Неизвестный')}\n"
+                   f"✅ Данные экспортированы успешно",
+            parse_mode='HTML'
+        )
+        
+        # Удаляем статусное сообщение
+        await status_msg.delete()
+        
+    except Exception as e:
+        logger.error(f"❌ Error in CSV export: {e}")
+        await status_msg.edit_text(
+            f"❌ Ошибка при создании CSV экспорта:\n{str(e)}",
+            parse_mode='HTML'
+        )
+
+async def export_google_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /export_google — подготовка данных для Google Sheets"""
+    from datetime import datetime, timedelta
+    import pytz
+    
+    # Временная зона
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    
+    # Последние 30 дней
+    end_date = now
+    start_date = now - timedelta(days=30)
+    
+    # Отправляем статус
+    status_msg = await update.message.reply_text(
+        "📊 <b>Подготавливаю данные для Google Sheets...</b>\n\n"
+        f"📅 Период: {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}\n"
+        "⏳ Собираю данные...",
+        parse_mode='HTML'
+    )
+    
+    try:
+        # Получаем аналитику за период
+        analytics = await get_channel_analytics_data(start_date, end_date)
+        
+        if not analytics or not analytics.get('access_confirmed'):
+            await status_msg.edit_text(
+                "❌ Не удалось получить данные для экспорта\n"
+                "🔧 Проверьте доступ к каналу и настройки API",
+                parse_mode='HTML'
+            )
+            return
+        
+        # Формируем отчет для копирования в Google Sheets
+        google_data = (
+            f"📊 <b>ДАННЫЕ ДЛЯ GOOGLE SHEETS</b>\n\n"
+            f"📅 <b>Период:</b> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}\n"
+            f"📺 <b>Канал:</b> {analytics.get('title', 'Неизвестный')}\n\n"
+            
+            f"📋 <b>ФОРМАТ ДЛЯ КОПИРОВАНИЯ:</b>\n"
+            f"<code>{start_date.strftime('%d.%m.%Y')}\t{end_date.strftime('%d.%m.%Y')}\t"
+            f"{analytics.get('current_subscribers', 0)}\t"
+            f"{analytics.get('posts', 0)}\t"
+            f"{analytics.get('stories', 0)}\t"
+            f"{analytics.get('circles', 0)}\t"
+            f"{analytics.get('avg_post_reach', 0)}\t"
+            f"{analytics.get('avg_story_reach', 0)}\t"
+            f"{analytics.get('avg_story_likes', 0)}\t"
+            f"{analytics.get('total_views', 0)}\t"
+            f"{analytics.get('posts_reactions', 0)}\t"
+            f"{analytics.get('story_likes', 0)}\t"
+            f"{analytics.get('er_numeric', 0)}\t"
+            f"{analytics.get('vtr', 'N/A')}\t"
+            f"{analytics.get('temperature', 'N/A')}</code>\n\n"
+            
+            f"📝 <b>ЗАГОЛОВКИ ДЛЯ ТАБЛИЦЫ:</b>\n"
+            f"<code>Дата начала\tДата окончания\tПодписчики\tПостов\t"
+            f"Видео-контента\tКружков\tОхват постов\tОхват видео\t"
+            f"Лайки видео\tПросмотры\tРеакции постов\tРеакции видео\t"
+            f"ER %\tVTR %\tТемпература</code>\n\n"
+            
+            f"💡 <b>ИНСТРУКЦИЯ:</b>\n"
+            f"1. Скопируйте заголовки в первую строку Google Sheets\n"
+            f"2. Скопируйте данные во вторую строку\n"
+            f"3. Данные разделены табуляцией для автоматического разделения по столбцам\n\n"
+            
+            f"🎯 <b>ЛУЧШИЕ ЧАСЫ ПУБЛИКАЦИИ:</b>\n"
+            f"{', '.join(analytics.get('best_hours', ['Недостаточно данных']))}\n\n"
+            
+            f"✅ <i>Данные актуальны на {now.strftime('%d.%m.%Y %H:%M')}</i>"
+        )
+        
+        await status_msg.edit_text(google_data, parse_mode='HTML')
+        
+    except Exception as e:
+        logger.error(f"❌ Error in Google export: {e}")
+        await status_msg.edit_text(
+            f"❌ Ошибка при подготовке данных для Google Sheets:\n{str(e)}",
             parse_mode='HTML'
         )
 
