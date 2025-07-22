@@ -829,8 +829,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /growth - Рост подписчиков\n"
         "• /analiz - Визуальная аналитика\n"
         "• /insights - Маркетинговые инсайты\n"
-        "• /charts - Графики\n"
-        "• /smm - 📊 Еженедельный SMM-отчет (НОВОЕ!)\n"
+        "• /charts - 📊 SMART ANALYTICS (НОВОЕ!)\n"
+        "• /smm - 📊 Еженедельный SMM-отчет\n"
+        "• /export_csv - 📄 Экспорт в CSV\n"
+        "• /export_google - 📈 Google Sheets (скоро)\n"
         "• /daily_report - Ежедневный отчет\n"
         "• /monthly_report - Месячный отчет\n"
         "• /channel_info - Информация о канале\n"
@@ -888,7 +890,8 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if real_stats and isinstance(real_stats, dict) and 'title' in real_stats:
         # Получаем аналитические данные за последние 7 дней
         from datetime import datetime, timedelta
-        end_date = datetime.now()
+        tz = pytz.timezone('Europe/Moscow')
+        end_date = datetime.now(tz)
         start_date = end_date - timedelta(days=7)
         analytics_data = await get_channel_analytics_data(start_date, end_date)
         
@@ -980,7 +983,8 @@ async def growth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_count = 0
         
         # Получаем реальные аналитические данные за разные периоды
-        end_date = datetime.now()
+        tz = pytz.timezone('Europe/Moscow')
+        end_date = datetime.now(tz)
         week_start = end_date - timedelta(days=7)
         month_start = end_date - timedelta(days=30)
         
@@ -1091,7 +1095,9 @@ async def insights_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             participants = 0
         
         # Получаем реальные аналитические данные
-        end_date = datetime.now()
+        from datetime import datetime, timedelta
+        tz = pytz.timezone('Europe/Moscow')
+        end_date = datetime.now(tz)
         start_date = end_date - timedelta(days=7)
         analytics_data = await get_channel_analytics_data(start_date, end_date)
         
@@ -1222,21 +1228,267 @@ async def insights_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /charts"""
-    keyboard = [
-        [InlineKeyboardButton("📈 Рост подписчиков", callback_data="chart_growth")],
-        [InlineKeyboardButton("⏰ Активность по часам", callback_data="chart_activity")],
-        [InlineKeyboardButton("🎯 Источники трафика", callback_data="chart_traffic")],
-        [InlineKeyboardButton("📊 Полный дашборд", callback_data="chart_dashboard")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    """Команда /charts - умная аналитика с реальными данными"""
+    from datetime import datetime, timedelta
     
-    await update.message.reply_text(
-        "📊 <b>Интерактивные графики</b>\n\n"
-        "Выберите тип визуализации:",
-        reply_markup=reply_markup,
+    # Отправляем сообщение о начале генерации
+    status_msg = await update.message.reply_text(
+        "📊 <b>Генерирую интеллектуальную аналитику...</b>\n\n"
+        "📈 Собираю данные за последние 7 дней\n"
+        "🔍 Анализирую метрики канала\n"
+        "📋 Подготавливаю детальный отчет...",
         parse_mode='HTML'
     )
+    
+    # Получаем реальные данные канала
+    real_stats = await get_real_channel_stats()
+    
+    if not real_stats or not isinstance(real_stats, dict):
+        await status_msg.edit_text(
+            "❌ <b>Канал не найден</b>\n\n"
+            "� Проверьте настройки:\n"
+            "• CHANNEL_ID\n"
+            "• API_ID и API_HASH\n"
+            "• SESSION_STRING\n\n"
+            "💡 Используйте /status для диагностики",
+            parse_mode='HTML'
+        )
+        return
+    
+    channel_name = real_stats.get('title', 'Неизвестный канал')
+    participants = real_stats.get('participants_count', 0) or 0
+    
+    # Получаем аналитические данные за разные периоды
+    tz = pytz.timezone('Europe/Moscow')
+    now = datetime.now(tz)
+    
+    # 7 дней
+    week_start = now - timedelta(days=7)
+    week_data = await get_channel_analytics_data(week_start, now)
+    
+    # 30 дней
+    month_start = now - timedelta(days=30)
+    month_data = await get_channel_analytics_data(month_start, now)
+    
+    if week_data and week_data.get('access_confirmed'):
+        # РЕАЛЬНЫЕ ДАННЫЕ ДОСТУПНЫ
+        week_posts = week_data.get('posts', 0)
+        week_stories = week_data.get('stories', 0)
+        week_messages = week_data.get('message_count', 0)
+        week_reach = week_data.get('avg_post_reach', 0)
+        week_er = week_data.get('er_numeric', 0)
+        temperature = week_data.get('temperature', '⬜⬜⬜⬜⬜')
+        temperature_score = week_data.get('temperature_score', '(0/5)')
+        er_rating = week_data.get('er_rating', 'Неизвестно')
+        best_hours = week_data.get('best_hours', [])
+        
+        # Сравнение с месяцем
+        if month_data and month_data.get('access_confirmed'):
+            month_posts = month_data.get('posts', 0)
+            month_reach = month_data.get('avg_post_reach', 0)
+            
+            # Расчет трендов
+            week_avg_posts = week_posts / 7
+            month_avg_posts = month_posts / 30
+            posts_trend = ((week_avg_posts - month_avg_posts) / max(month_avg_posts, 0.1)) * 100
+            reach_trend = ((week_reach - month_reach) / max(month_reach, 1)) * 100
+        else:
+            posts_trend = 0
+            reach_trend = 0
+            month_posts = 0
+            month_reach = 0
+        
+        # Генерируем детальный отчет с трендами
+        trend_emoji_posts = "📈" if posts_trend > 0 else "📉" if posts_trend < 0 else "➡️"
+        trend_emoji_reach = "📈" if reach_trend > 0 else "📉" if reach_trend < 0 else "➡️"
+        
+        # Форматируем лучшие часы
+        best_hours_text = ""
+        if best_hours and len(best_hours) >= 3:
+            for i, (time_range, er_val) in enumerate(best_hours[:3], 1):
+                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+                best_hours_text += f"• {emoji} {time_range} → ER: {er_val}\n"
+        else:
+            best_hours_text = "• 📊 Накапливаю данные для анализа...\n"
+        
+        # Прогноз роста
+        if week_posts > 0:
+            estimated_monthly_reach = week_reach * 4.3  # 4.3 недели в месяце
+            estimated_growth = max(week_posts * 3, 10)  # 3 подписчика на пост
+        else:
+            estimated_monthly_reach = 0
+            estimated_growth = 0
+        
+        report = (
+            f"📊 <b>SMART ANALYTICS: {channel_name}</b>\n\n"
+            
+            f"🌡️ <b>Температура канала:</b> {temperature} {temperature_score}\n"
+            f"👥 <b>Аудитория:</b> {participants:,} подписчиков\n"
+            f"🔄 <b>ER рейтинг:</b> {er_rating}\n\n"
+            
+            f"📈 <b>АКТИВНОСТЬ ЗА 7 ДНЕЙ:</b>\n"
+            f"📝 Постов: {week_posts} {trend_emoji_posts} {posts_trend:+.1f}%\n"
+            f"📺 СТОРИС: {week_stories}\n"
+            f"📋 Всего сообщений: {week_messages}\n"
+            f"⚡ Средний охват: {week_reach:,} {trend_emoji_reach} {reach_trend:+.1f}%\n"
+            f"🎯 ER: {week_er:.2f}%\n\n"
+            
+            f"📅 <b>СРАВНЕНИЕ С МЕСЯЦЕМ:</b>\n"
+            f"📝 Постов за месяц: {month_posts}\n"
+            f"⚡ Средний охват за месяц: {month_reach:,}\n"
+            f"📊 Тренд активности: {trend_emoji_posts} {posts_trend:+.1f}%\n"
+            f"📈 Тренд охвата: {trend_emoji_reach} {reach_trend:+.1f}%\n\n"
+            
+            f"⏰ <b>ЗОЛОТЫЕ ЧАСЫ ПУБЛИКАЦИЙ:</b>\n"
+            f"{best_hours_text}\n"
+            
+            f"🔮 <b>ПРОГНОЗЫ НА МЕСЯЦ:</b>\n"
+            f"👁 Ожидаемый охват: {estimated_monthly_reach:,.0f}\n"
+            f"👥 Прогноз роста: +{estimated_growth} подписчиков\n"
+            f"📱 Рекомендуемая частота: {max(1, week_posts // 7)} постов/день\n\n"
+            
+            f"💡 <b>РЕКОМЕНДАЦИИ:</b>\n"
+            f"• {'Увеличьте частоту публикаций' if week_posts < 7 else 'Поддерживайте активность'}\n"
+            f"• {'Публикуйте в лучшие часы' if best_hours else 'Экспериментируйте с временем'}\n"
+            f"• {'Добавьте больше СТОРИС' if week_stories < 3 else 'Хороший баланс контента'}\n\n"
+            
+            f"🔗 <b>ЭКСПОРТ ДАННЫХ:</b>\n"
+            f"• Google Sheets: /export_google\n"
+            f"• CSV файл: /export_csv\n"
+            f"• Графики: /analiz\n\n"
+            
+            f"✅ <i>Данные актуальны на {now.strftime('%d.%m.%Y %H:%M')}</i>"
+        )
+        
+        await status_msg.edit_text(report, parse_mode='HTML')
+        
+    elif week_data and week_data.get('error'):
+        # Ошибка доступа
+        error_msg = week_data.get('message', 'Неизвестная ошибка')
+        await status_msg.edit_text(
+            f"📊 <b>SMART ANALYTICS: {channel_name}</b>\n\n"
+            f"👥 <b>Аудитория:</b> {participants:,} подписчиков\n\n"
+            f"❌ <b>Проблема доступа:</b>\n"
+            f"🔍 {error_msg}\n\n"
+            f"🔧 <b>Решения:</b>\n"
+            f"• Проверьте SESSION_STRING\n"
+            f"• Убедитесь в доступе к каналу\n"
+            f"• ID канала: <code>{CHANNEL_ID}</code>\n\n"
+            f"📊 <b>Доступные опции:</b>\n"
+            f"• /channel_info - Базовая информация\n"
+            f"• /status - Полная диагностика\n"
+            f"• /help - Руководство по настройке",
+            parse_mode='HTML'
+        )
+    else:
+        # Нет данных
+        await status_msg.edit_text(
+            f"📊 <b>SMART ANALYTICS: {channel_name}</b>\n\n"
+            f"👥 <b>Аудитория:</b> {participants:,} подписчиков\n\n"
+            f"⚠️ <b>Для получения аналитики необходимо:</b>\n"
+            f"• Настроить Telethon (API_ID, API_HASH)\n"
+            f"• Добавить SESSION_STRING\n"
+            f"• Проверить доступ к каналу\n\n"
+            f"🚀 <b>Быстрый старт:</b>\n"
+            f"• /status - Проверка настроек\n"
+            f"• /help - Инструкция по настройке\n\n"
+            f"💡 <i>После настройки получите полную аналитику</i>",
+            parse_mode='HTML'
+        )
+
+async def export_google_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /export_google - экспорт в Google Sheets"""
+    await update.message.reply_text(
+        "📊 <b>Экспорт в Google Sheets</b>\n\n"
+        "🚧 <b>В разработке!</b>\n\n"
+        "📋 <b>Что будет доступно:</b>\n"
+        "• Автоматическое создание таблицы\n"
+        "• Ежедневное обновление данных\n"
+        "• Интерактивные графики\n"
+        "• Возможность совместного доступа\n\n"
+        "💡 <b>Сейчас доступно:</b>\n"
+        "• /analiz - Визуальные графики\n"
+        "• /charts - Детальная аналитика\n"
+        "• /export_csv - Экспорт в CSV\n\n"
+        "🔔 <i>Уведомим о готовности функции!</i>",
+        parse_mode='HTML'
+    )
+
+async def export_csv_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /export_csv - экспорт в CSV"""
+    from datetime import datetime, timedelta
+    import io
+    
+    # Получаем данные
+    tz = pytz.timezone('Europe/Moscow')
+    end_date = datetime.now(tz)
+    start_date = end_date - timedelta(days=30)  # За месяц
+    
+    status_msg = await update.message.reply_text(
+        "📊 <b>Генерирую CSV отчет...</b>\n\n"
+        "📅 Период: 30 дней\n"
+        "📋 Собираю данные...",
+        parse_mode='HTML'
+    )
+    
+    analytics_data = await get_channel_analytics_data(start_date, end_date)
+    real_stats = await get_real_channel_stats()
+    
+    if analytics_data and analytics_data.get('access_confirmed') and real_stats:
+        # Создаем CSV контент
+        csv_content = "Parameter,Value,Period\n"
+        csv_content += f"Channel Name,{real_stats.get('title', 'Unknown')},Current\n"
+        csv_content += f"Subscribers,{real_stats.get('participants_count', 0)},Current\n"
+        csv_content += f"Posts,{analytics_data.get('posts', 0)},30 days\n"
+        csv_content += f"Stories,{analytics_data.get('stories', 0)},30 days\n"
+        csv_content += f"Average Reach,{analytics_data.get('avg_post_reach', 0)},30 days\n"
+        csv_content += f"Engagement Rate,{analytics_data.get('er_numeric', 0)},30 days\n"
+        csv_content += f"Total Views,{analytics_data.get('total_views', 0)},30 days\n"
+        csv_content += f"Total Reactions,{analytics_data.get('total_reactions', 0)},30 days\n"
+        csv_content += f"Total Forwards,{analytics_data.get('total_forwards', 0)},30 days\n"
+        csv_content += f"Messages Analyzed,{analytics_data.get('message_count', 0)},30 days\n"
+        csv_content += f"Export Date,{end_date.strftime('%Y-%m-%d %H:%M')},Current\n"
+        
+        # Создаем файл
+        csv_buffer = io.BytesIO()
+        csv_buffer.write(csv_content.encode('utf-8'))
+        csv_buffer.seek(0)
+        
+        await status_msg.edit_text(
+            "✅ <b>CSV отчет готов!</b>\n\n"
+            "📊 Отправляю файл...",
+            parse_mode='HTML'
+        )
+        
+        # Отправляем файл
+        channel_name = real_stats.get('title', 'Channel').replace(' ', '_').replace('|', '')
+        filename = f"analytics_{channel_name}_{end_date.strftime('%Y%m%d')}.csv"
+        
+        await update.message.reply_document(
+            document=csv_buffer,
+            filename=filename,
+            caption=(
+                f"📊 <b>Аналитика канала: {real_stats.get('title', 'Неизвестный')}</b>\n\n"
+                f"📅 Период: {start_date.strftime('%d.%m')} - {end_date.strftime('%d.%m.%Y')}\n"
+                f"📋 Параметров: 10\n"
+                f"🎯 Формат: CSV (UTF-8)\n\n"
+                f"💡 <i>Откройте в Excel или Google Sheets</i>"
+            ),
+            parse_mode='HTML'
+        )
+        
+        await status_msg.delete()
+        
+    else:
+        await status_msg.edit_text(
+            "❌ <b>Не удалось создать CSV отчет</b>\n\n"
+            "🔧 <b>Возможные причины:</b>\n"
+            "• Нет доступа к данным канала\n"
+            "• Telethon не настроен\n"
+            "• Ошибка анализа данных\n\n"
+            "💡 Используйте /charts для диагностики",
+            parse_mode='HTML'
+        )
 
 async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка нажатий кнопок графиков"""
@@ -1533,6 +1785,8 @@ async def main():
     application.add_handler(CommandHandler("daily_report", daily_report_command))
     application.add_handler(CommandHandler("monthly_report", monthly_report_command))
     application.add_handler(CommandHandler("smm", smm_command))
+    application.add_handler(CommandHandler("export_csv", export_csv_command))
+    application.add_handler(CommandHandler("export_google", export_google_command))
     
     # Add callback query handler for chart interactions
     application.add_handler(CallbackQueryHandler(handle_chart_callback))
