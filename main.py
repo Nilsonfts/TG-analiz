@@ -273,21 +273,22 @@ async def get_channel_analytics_data(start_date, end_date):
         message_count = 0
         logger.info(f"📅 Анализируем период: {start_date.strftime('%d.%m.%Y %H:%M')} - {end_date.strftime('%d.%m.%Y %H:%M')}")
         
-        async for message in telethon_client.iter_messages(channel, offset_date=end_date):
-            if message.date < start_date:
-                break
-            
-            message_count += 1
-            
-            # НОВАЯ ЛОГИКА ПО ТЕХНИЧЕСКОМУ ЗАДАНИЮ
-            
-            # 1. Исключаем репосты (forward_from или fwd_from)
-            if message.forward_from or message.fwd_from:
-                continue  # skip repost
-            
-            # 2. Исключаем запланированные сообщения
-            if hasattr(message, 'is_scheduled') and message.is_scheduled:
-                continue
+        try:
+            async for message in telethon_client.iter_messages(channel, offset_date=end_date):
+                if message.date < start_date:
+                    break
+
+                message_count += 1
+
+                # НОВАЯ ЛОГИКА ПО ТЕХНИЧЕСКОМУ ЗАДАНИЮ
+
+                # 1. Исключаем репосты (только fwd_from для Telethon)
+                if hasattr(message, 'fwd_from') and message.fwd_from:
+                    continue  # skip repost
+
+                # 2. Исключаем запланированные сообщения
+                if hasattr(message, 'is_scheduled') and message.is_scheduled:
+                    continue
             
             # 3. Определяем тип контента
             content_type = 'post'  # по умолчанию
@@ -373,6 +374,18 @@ async def get_channel_analytics_data(start_date, end_date):
                 posts_by_hour[hour]["views"] += views
                 posts_by_hour[hour]["reactions"] += message_reactions
                 posts_by_hour[hour]["total_engagement"] += message_reactions + forwards
+        
+        except Exception as e:
+            logger.error(f"❌ Error processing messages: {e}")
+            # Возвращаем частичные данные если удалось что-то собрать
+            if message_count == 0:
+                return {
+                    'title': getattr(channel, 'title', 'Неизвестный канал'),
+                    'error': 'processing_error',
+                    'current_subscribers': current_subscribers,
+                    'participants_count': current_subscribers,
+                    'message': f'Ошибка обработки сообщений: {str(e)}'
+                }
         
         logger.info(f"📊 Проанализировано сообщений: {message_count}")
         
@@ -1821,43 +1834,46 @@ async def monthly_report_command(update, context):
         parse_mode='HTML'
     )
     
-    # Получаем реальные данные через Telethon
-    analytics = await get_channel_analytics_data(start, end)
+    # Предварительно рассчитываем дни в месяце для использования в любом случае
+    days_in_month = (end - start).days + 1
     
-    if analytics and analytics.get('access_confirmed') and real_stats:
-        channel_name = real_stats.get('title', 'Неизвестный канал')
-        username = real_stats.get('username', 'неизвестно')
-        participants = real_stats.get('participants_count', 0)
+    try:
+        # Получаем реальные данные через Telethon
+        analytics = await get_channel_analytics_data(start, end)
         
-        # Исправляем расчет реакций - считаем ВСЕ реакции правильно
-        total_post_reactions = analytics.get('posts_reactions', 0)
-        total_story_reactions = analytics.get('story_likes', 0)
-        
-        # Средние показатели за месяц
-        days_in_month = (end - start).days + 1
-        avg_posts_per_day = analytics['posts'] / days_in_month if analytics['posts'] > 0 else 0
-        avg_post_reactions = total_post_reactions // max(analytics['posts'], 1) if analytics['posts'] > 0 else 0
-        avg_story_reactions = total_story_reactions // max(analytics['stories'], 1) if analytics['stories'] > 0 else 0
-        
-        # Прогнозы на основе месячных данных
-        projected_growth = max(analytics['posts'] * 2, 30)  # Примерный рост на основе активности
-        
-        await status_msg.edit_text(
-            f"📆 <b>МЕСЯЧНЫЙ ОТЧЕТ</b>\n\n"
-            f"📅 <b>Месяц:</b> {month_name} {start.year}\n"
-            f"📺 <b>Канал:</b> {channel_name}\n"
-            f"🔗 <b>Username:</b> @{username}\n"
-            f"👥 <b>Подписчики:</b> {participants:,}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} ({days_in_month} дней)\n\n"
+        if analytics and analytics.get('access_confirmed') and real_stats:
+            channel_name = real_stats.get('title', 'Неизвестный канал')
+            username = real_stats.get('username', 'неизвестно')
+            participants = real_stats.get('participants_count', 0)
             
-            f"📊 <b>АКТИВНОСТЬ ЗА МЕСЯЦ:</b>\n"
-            f"📝 Всего постов: {analytics['posts']} (≈{avg_posts_per_day:.1f}/день)\n"
-            f"🎬 Видео-контента: {analytics['stories']}\n"
-            f"🎥 Кружков: {analytics['circles']}\n\n"
+            # Исправляем расчет реакций - считаем ВСЕ реакции правильно
+            total_post_reactions = analytics.get('posts_reactions', 0)
+            total_story_reactions = analytics.get('story_likes', 0)
             
-            f"📈 <b>ОХВАТ И ВОВЛЕЧЕННОСТЬ:</b>\n"
-            f"⚡ Средний охват поста: {analytics['avg_post_reach']:,}\n"
-            f"📺 Средний охват видео: {analytics['avg_story_reach']:,}\n"
+            # Средние показатели за месяц
+            avg_posts_per_day = analytics['posts'] / days_in_month if analytics['posts'] > 0 else 0
+            avg_post_reactions = total_post_reactions // max(analytics['posts'], 1) if analytics['posts'] > 0 else 0
+            avg_story_reactions = total_story_reactions // max(analytics['stories'], 1) if analytics['stories'] > 0 else 0
+            
+            # Прогнозы на основе месячных данных
+            projected_growth = max(analytics['posts'] * 2, 30)  # Примерный рост на основе активности
+            
+            await status_msg.edit_text(
+                f"📆 <b>МЕСЯЧНЫЙ ОТЧЕТ</b>\n\n"
+                f"📅 <b>Месяц:</b> {month_name} {start.year}\n"
+                f"📺 <b>Канал:</b> {channel_name}\n"
+                f"🔗 <b>Username:</b> @{username}\n"
+                f"👥 <b>Подписчики:</b> {participants:,}\n"
+                f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} ({days_in_month} дней)\n\n"
+                
+                f"📊 <b>АКТИВНОСТЬ ЗА МЕСЯЦ:</b>\n"
+                f"📝 Всего постов: {analytics['posts']} (≈{avg_posts_per_day:.1f}/день)\n"
+                f"🎬 Видео-контента: {analytics['stories']}\n"
+                f"🎥 Кружков: {analytics['circles']}\n\n"
+                
+                f"📈 <b>ОХВАТ И ВОВЛЕЧЕННОСТЬ:</b>\n"
+                f"⚡ Средний охват поста: {analytics['avg_post_reach']:,}\n"
+                f"📺 Средний охват видео: {analytics['avg_story_reach']:,}\n"
             f"❤️ Общие реакции на посты: {total_post_reactions:,} (≈{avg_post_reactions}/пост)\n"
             f"💝 Общие реакции на видео: {total_story_reactions:,} (≈{avg_story_reactions}/видео)\n"
             f"🔄 Общая вовлеченность (ER): {analytics['er']}\n"
@@ -1914,6 +1930,22 @@ async def monthly_report_command(update, context):
             f"• Слишком большой объем данных\n"
             f"• Технические ограничения API\n\n"
             f"💡 Попробуйте /daily_report или /charts для меньших периодов",
+            parse_mode='HTML'
+        )
+    
+    except Exception as e:
+        logger.error(f"❌ Error in monthly report: {e}")
+        await status_msg.edit_text(
+            f"📆 <b>Месячный отчет</b>\n"
+            f"📅 <b>Месяц:</b> {month_name} {start.year}\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} ({days_in_month} дней)\n\n"
+            f"❌ <b>Ошибка при создании отчета:</b>\n"
+            f"🔍 {str(e)}\n\n"
+            f"🔧 <b>Рекомендации:</b>\n"
+            f"• Проверьте настройки Telethon API\n"
+            f"• Попробуйте /daily_report для меньшего периода\n"
+            f"• Используйте /status для диагностики\n"
+            f"• Обратитесь к разработчику если проблема повторяется",
             parse_mode='HTML'
         )
 
