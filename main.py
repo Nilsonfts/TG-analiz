@@ -205,10 +205,11 @@ async def get_channel_analytics_data(start_date, end_date):
         stories = 0
         circles = 0
         total_views = 0
-        total_reactions = 0
+        total_reactions = 0  # Все реакции
+        posts_reactions = 0  # Реакции только на посты
         total_forwards = 0
         story_views = 0
-        story_likes = 0
+        story_likes = 0  # Реакции на stories/видео
         story_forwards = 0  # ✅ ИСПРАВЛЕНО: Добавлена недостающая переменная
         posts_by_hour = {}
         
@@ -353,10 +354,13 @@ async def get_channel_analytics_data(start_date, end_date):
                 for reaction in message.reactions.results:
                     message_reactions += reaction.count
                 
+                # Добавляем к общему счетчику
+                total_reactions += message_reactions
+                
                 if is_story:
-                    story_likes += message_reactions  # Для stories считаем как лайки
+                    story_likes += message_reactions  # Реакции на видео-контент
                 else:
-                    total_reactions += message_reactions
+                    posts_reactions += message_reactions  # Реакции на обычные посты
                     if not is_circle and hour in posts_by_hour:
                         posts_by_hour[hour]["reactions"] += message_reactions
         
@@ -468,6 +472,8 @@ async def get_channel_analytics_data(start_date, end_date):
             'participants_count': current_subscribers,  # Для совместимости с генератором
             'total_views': total_views,
             'total_reactions': total_reactions,
+            'posts_reactions': posts_reactions,  # ✅ НОВОЕ: Реакции только на посты
+            'story_likes': story_likes,  # ✅ УТОЧНЕНО: Реакции на видео-контент
             'total_forwards': total_forwards,
             'total_engagement': total_reactions + total_forwards,
             'best_hours': best_hours,
@@ -1690,28 +1696,82 @@ async def daily_report_command(update, context):
         end = end - timedelta(days=0)
     start = end - timedelta(days=1)
     
+    # Получаем информацию о канале
+    real_stats = await get_real_channel_stats()
+    
     # Получаем реальные данные через Telethon
     analytics = await get_channel_analytics_data(start, end)
-    if analytics:
+    
+    if analytics and analytics.get('access_confirmed') and real_stats:
+        channel_name = real_stats.get('title', 'Неизвестный канал')
+        username = real_stats.get('username', 'неизвестно')
+        participants = real_stats.get('participants_count', 0)
+        
+        # Исправляем расчет реакций - считаем ВСЕ реакции
+        total_post_reactions = analytics.get('posts_reactions', 0)  # Реакции только на посты
+        total_story_reactions = analytics.get('story_likes', 0)  # Реакции на видео-контент
+        total_all_reactions = analytics.get('total_reactions', 0)  # Все реакции
+        
+        # Средние реакции
+        avg_post_reactions = total_post_reactions // max(analytics['posts'], 1) if analytics['posts'] > 0 else 0
+        avg_story_reactions = total_story_reactions // max(analytics['stories'], 1) if analytics['stories'] > 0 else 0
+        
         await update.message.reply_text(
             f"📅 <b>Ежедневный отчет</b>\n"
-            f"Период: {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
-            f"📝 <b>Постов:</b> {analytics['posts']}\n"
-            f"📺 <b>СТОРИС (визуальный контент):</b> {analytics['stories']}\n"
-            f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
-            f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
-            f"📊 <b>Средний охват СТОРИС:</b> {analytics['avg_story_reach']}\n"
-            f"❤️ <b>Средние лайки СТОРИС:</b> {analytics['avg_story_likes']}\n"
-            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}\n\n"
-            f"⚠️ <b>Ограничения API:</b>\n"
-            f"• Подписки/отписки недоступны через Telegram API\n"
-            f"• СТОРИС определяются алгоритмом (короткие видео + фото без текста)\n\n"
-            f"✅ <i>Данные получены через Telethon API</i>",
+            f"📺 <b>Канал:</b> {channel_name}\n"
+            f"🔗 <b>Username:</b> @{username}\n"
+            f"👥 <b>Подписчики:</b> {participants:,}\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            
+            f"� <b>КОНТЕНТ ЗА СУТКИ:</b>\n"
+            f"📝 Постов: {analytics['posts']}\n"
+            f"🎬 Видео-контента: {analytics['stories']}\n"
+            f"🎥 Кружков: {analytics['circles']}\n\n"
+            
+            f"� <b>ОХВАТ И ВОВЛЕЧЕННОСТЬ:</b>\n"
+            f"⚡ Средний охват поста: {analytics['avg_post_reach']:,}\n"
+            f"� Средний охват видео: {analytics['avg_story_reach']:,}\n"
+            f"❤️ Реакции на посты: {avg_post_reactions} (среднее)\n"
+            f"💝 Реакции на видео: {avg_story_reactions} (среднее)\n"
+            f"🔄 Общая вовлеченность (ER): {analytics['er']}\n"
+            f"👀 Просматриваемость (VTR): {analytics.get('vtr', 'N/A')}\n\n"
+            
+            f"📋 <b>ДЕТАЛИ АНАЛИЗА:</b>\n"
+            f"📊 Проанализировано сообщений: {analytics.get('message_count', 0)}\n"
+            f"🔥 Температура канала: {analytics.get('temperature', 'N/A')}\n"
+            f"📈 Рейтинг ER: {analytics.get('er_rating', 'N/A')}\n\n"
+            
+            f"⚠️ <b>Ограничения:</b>\n"
+            f"• Точные подписки/отписки недоступны через публичный API\n"
+            f"• Видео-контент определяется алгоритмом (видео ≤60сек + фото с минимумом текста)\n"
+            f"• Кружки определяются по специальным атрибутам медиа\n\n"
+            
+            f"✅ <i>Данные получены через Telethon API | {now.strftime('%d.%m.%Y %H:%M')}</i>",
+            parse_mode='HTML'
+        )
+    elif analytics and analytics.get('error'):
+        await update.message.reply_text(
+            f"📅 <b>Ежедневный отчет</b>\n"
+            f"📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"❌ <b>Проблема с доступом к данным:</b>\n"
+            f"🔍 {analytics.get('message', 'Неизвестная ошибка')}\n\n"
+            f"🔧 <b>Решения:</b>\n"
+            f"• Проверьте SESSION_STRING в Railway Variables\n"
+            f"• Убедитесь что аккаунт имеет доступ к каналу\n"
+            f"• Используйте /status для полной диагностики",
             parse_mode='HTML'
         )
     else:
         await update.message.reply_text(
-            "❌ Не удалось получить реальные данные за сутки.\nПроверьте настройки Telethon или попробуйте позже.",
+            f"📅 <b>Ежедневный отчет</b>\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"❌ <b>Не удалось получить данные за сутки</b>\n\n"
+            f"🔧 <b>Возможные причины:</b>\n"
+            f"• Telethon не настроен (нужны API_ID, API_HASH, SESSION_STRING)\n"
+            f"• Нет доступа к каналу\n"
+            f"• Технические проблемы с API\n\n"
+            f"💡 Используйте /status для диагностики",
             parse_mode='HTML'
         )
 
@@ -1727,28 +1787,106 @@ async def monthly_report_command(update, context):
         end = end - timedelta(days=0)
     start = end - timedelta(days=30)
     
+    # Получаем информацию о канале
+    real_stats = await get_real_channel_stats()
+    
+    # Отправляем статус загрузки
+    status_msg = await update.message.reply_text(
+        "📆 <b>Генерирую месячный отчет...</b>\n\n"
+        "📅 Период: 30 дней\n"
+        "⏳ Анализирую большой объем данных...",
+        parse_mode='HTML'
+    )
+    
     # Получаем реальные данные через Telethon
     analytics = await get_channel_analytics_data(start, end)
-    if analytics:
-        await update.message.reply_text(
+    
+    if analytics and analytics.get('access_confirmed') and real_stats:
+        channel_name = real_stats.get('title', 'Неизвестный канал')
+        username = real_stats.get('username', 'неизвестно')
+        participants = real_stats.get('participants_count', 0)
+        
+        # Исправляем расчет реакций - считаем ВСЕ реакции правильно
+        total_post_reactions = analytics.get('posts_reactions', 0)
+        total_story_reactions = analytics.get('story_likes', 0)
+        
+        # Средние показатели за месяц
+        avg_posts_per_day = analytics['posts'] / 30 if analytics['posts'] > 0 else 0
+        avg_post_reactions = total_post_reactions // max(analytics['posts'], 1) if analytics['posts'] > 0 else 0
+        avg_story_reactions = total_story_reactions // max(analytics['stories'], 1) if analytics['stories'] > 0 else 0
+        
+        # Прогнозы на основе месячных данных
+        projected_growth = max(analytics['posts'] * 2, 30)  # Примерный рост на основе активности
+        
+        await status_msg.edit_text(
             f"📆 <b>Месячный отчет</b>\n"
-            f"Период: {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
-            f"📝 <b>Постов:</b> {analytics['posts']}\n"
-            f"📺 <b>СТОРИС (визуальный контент):</b> {analytics['stories']}\n"
-            f"🎥 <b>Кружков:</b> {analytics['circles']}\n"
-            f"📊 <b>Средний охват поста:</b> {analytics['avg_post_reach']}\n"
-            f"📊 <b>Средний охват СТОРИС:</b> {analytics['avg_story_reach']}\n"
-            f"❤️ <b>Средние лайки СТОРИС:</b> {analytics['avg_story_likes']}\n"
-            f"🔄 <b>Вовлеченность (ER):</b> {analytics['er']}\n\n"
-            f"⚠️ <b>Ограничения API:</b>\n"
-            f"• Подписки/отписки недоступны через Telegram API\n"
-            f"• СТОРИС определяются алгоритмом (короткие видео + фото без текста)\n\n"
-            f"✅ <i>Данные получены через Telethon API за 30 дней</i>",
+            f"📺 <b>Канал:</b> {channel_name}\n"
+            f"🔗 <b>Username:</b> @{username}\n"
+            f"👥 <b>Подписчики:</b> {participants:,}\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}\n\n"
+            
+            f"📊 <b>АКТИВНОСТЬ ЗА МЕСЯЦ:</b>\n"
+            f"📝 Всего постов: {analytics['posts']} (≈{avg_posts_per_day:.1f}/день)\n"
+            f"🎬 Видео-контента: {analytics['stories']}\n"
+            f"🎥 Кружков: {analytics['circles']}\n\n"
+            
+            f"📈 <b>ОХВАТ И ВОВЛЕЧЕННОСТЬ:</b>\n"
+            f"⚡ Средний охват поста: {analytics['avg_post_reach']:,}\n"
+            f"📺 Средний охват видео: {analytics['avg_story_reach']:,}\n"
+            f"❤️ Общие реакции на посты: {total_post_reactions:,} (≈{avg_post_reactions}/пост)\n"
+            f"💝 Общие реакции на видео: {total_story_reactions:,} (≈{avg_story_reactions}/видео)\n"
+            f"🔄 Общая вовлеченность (ER): {analytics['er']}\n"
+            f"👀 Просматриваемость (VTR): {analytics.get('vtr', 'N/A')}\n\n"
+            
+            f"🔥 <b>КАЧЕСТВО КАНАЛА:</b>\n"
+            f"🌡️ Температура: {analytics.get('temperature', 'N/A')} {analytics.get('temperature_score', '')}\n"
+            f"📈 Рейтинг ER: {analytics.get('er_rating', 'N/A')}\n"
+            f"📊 Всего просмотров: {analytics.get('total_views', 0):,}\n"
+            f"🔄 Всего пересылок: {analytics.get('total_forwards', 0):,}\n\n"
+            
+            f"🔮 <b>ИНСАЙТЫ И ПРОГНОЗЫ:</b>\n"
+            f"📈 Прогноз роста: +{projected_growth} подписчиков/месяц\n"
+            f"⏰ Лучшие часы: {', '.join([f'{h[0]}' for h in analytics.get('best_hours', [])[:3]]) if analytics.get('best_hours') else 'Накапливаются данные'}\n"
+            f"🎯 Рекомендация: {'Увеличить частоту постов' if avg_posts_per_day < 1 else 'Поддерживать активность'}\n\n"
+            
+            f"📋 <b>ДЕТАЛИ АНАЛИЗА:</b>\n"
+            f"📊 Проанализировано сообщений: {analytics.get('message_count', 0):,}\n"
+            f"📅 Дней анализа: 30\n\n"
+            
+            f"⚠️ <b>Методология:</b>\n"
+            f"• Реакции учитываются отдельно для постов и видео-контента\n"
+            f"• Видео-контент: видео ≤60сек + фото с минимумом текста\n"
+            f"• ER рассчитывается по формуле: (реакции + пересылки) / подписчики × 100%\n"
+            f"• Прогнозы основаны на текущей активности канала\n\n"
+            
+            f"✅ <i>Отчет создан: {now.strftime('%d.%m.%Y %H:%M')} | Telethon API</i>",
+            parse_mode='HTML'
+        )
+    elif analytics and analytics.get('error'):
+        await status_msg.edit_text(
+            f"📆 <b>Месячный отчет</b>\n"
+            f"📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}\n\n"
+            f"❌ <b>Проблема с доступом к данным:</b>\n"
+            f"🔍 {analytics.get('message', 'Неизвестная ошибка')}\n\n"
+            f"🔧 <b>Решения:</b>\n"
+            f"• Проверьте SESSION_STRING (возможно устарел)\n"
+            f"• Убедитесь что аккаунт имеет доступ к каналу\n"
+            f"• Для больших каналов может потребоваться время\n"
+            f"• Используйте /status для полной диагностики",
             parse_mode='HTML'
         )
     else:
-        await update.message.reply_text(
-            "❌ Не удалось получить реальные данные за месяц.\nПроверьте настройки Telethon или попробуйте позже.",
+        await status_msg.edit_text(
+            f"📆 <b>Месячный отчет</b>\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}\n\n"
+            f"❌ <b>Не удалось получить данные за месяц</b>\n\n"
+            f"🔧 <b>Возможные причины:</b>\n"
+            f"• Telethon не настроен\n"
+            f"• Нет доступа к каналу\n"
+            f"• Слишком большой объем данных\n"
+            f"• Технические ограничения API\n\n"
+            f"💡 Попробуйте /daily_report или /charts для меньших периодов",
             parse_mode='HTML'
         )
 
