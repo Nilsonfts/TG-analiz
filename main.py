@@ -290,43 +290,58 @@ async def get_channel_analytics_data(start_date, end_date):
                 if hasattr(message, 'is_scheduled') and message.is_scheduled:
                     continue
             
-            # 3. Определяем тип контента
-            content_type = 'post'  # по умолчанию
-            
-            if hasattr(message, 'media') and message.media:
-                # Кружки (video_note)
-                if hasattr(message.media, 'document') and hasattr(message.media.document, 'attributes'):
-                    for attr in message.media.document.attributes:
-                        if hasattr(attr, 'round_message') and attr.round_message:
-                            content_type = 'circle'
-                            count_circles += 1
-                            break
-                    else:
-                        # Проверяем на сторис (короткие видео ≤60 сек)
-                        for attr in message.media.document.attributes:
-                            if hasattr(attr, 'duration') and attr.duration and attr.duration <= 60:
+                # 3. НОВАЯ УМНАЯ КЛАССИФИКАЦИЯ КОНТЕНТА
+                content_type = 'post'  # по умолчанию
+                message_text = getattr(message, 'text', '') or ''
+                text_length = len(message_text.strip())
+                
+                if hasattr(message, 'media') and message.media:
+                    media_type = type(message.media).__name__
+                    
+                    # КРУЖКИ - высший приоритет (video_note или round_message)
+                    if 'DocumentAttribute' in str(type(message.media)) or hasattr(message.media, 'document'):
+                        if hasattr(message.media, 'document') and hasattr(message.media.document, 'attributes'):
+                            for attr in message.media.document.attributes:
+                                if hasattr(attr, 'round_message') and attr.round_message:
+                                    content_type = 'circle'
+                                    break
+                                elif hasattr(attr, 'video_note') and attr.video_note:
+                                    content_type = 'circle'
+                                    break
+                    
+                    # Если не кружок, проверяем на СТОРИС
+                    if content_type != 'circle':
+                        # ВИДЕО-СТОРИС: короткие видео ≤ 60 секунд
+                        if hasattr(message.media, 'document') and hasattr(message.media.document, 'attributes'):
+                            for attr in message.media.document.attributes:
+                                if hasattr(attr, 'duration') and attr.duration and attr.duration <= 60:
+                                    # Короткое видео без длинного текста = сторис
+                                    if text_length <= 100:
+                                        content_type = 'story'
+                                        break
+                        
+                        # ФОТО-СТОРИС: фото без текста или с коротким текстом
+                        elif 'Photo' in media_type:
+                            if text_length <= 50:  # Фото без текста или короткий текст
                                 content_type = 'story'
-                                count_stories += 1
-                                break
+                            else:
+                                content_type = 'post'  # Фото с длинным текстом = пост
+                        
+                        # ВСЕ ОСТАЛЬНОЕ МЕДИА = ПОСТЫ
                         else:
                             content_type = 'post'
-                            count_posts += 1
-                # Фото без текста или с коротким текстом = сторис
-                elif 'Photo' in type(message.media).__name__:
-                    message_text = getattr(message, 'text', '') or ''
-                    if len(message_text.strip()) < 50:
-                        content_type = 'story'
-                        count_stories += 1
-                    else:
-                        content_type = 'post'
-                        count_posts += 1
+                
+                # ТЕКСТОВЫЕ СООБЩЕНИЯ = ПОСТЫ
                 else:
                     content_type = 'post'
+                
+                # Увеличиваем счетчики ТОЛЬКО РАЗ для каждого типа
+                if content_type == 'circle':
+                    count_circles += 1
+                elif content_type == 'story':
+                    count_stories += 1
+                else:  # content_type == 'post'
                     count_posts += 1
-            else:
-                # Текстовые сообщения = посты
-                content_type = 'post'
-                count_posts += 1
             
             # 4. Считаем просмотры (только если views > 0)
             views = getattr(message, 'views', 0) or 0
@@ -389,103 +404,147 @@ async def get_channel_analytics_data(start_date, end_date):
         
         logger.info(f"📊 Проанализировано сообщений: {message_count}")
         
+        # ЛОГИРОВАНИЕ ДЕТАЛЬНОЙ СТАТИСТИКИ
+        logger.info(f"📊 ДЕТАЛЬНАЯ СТАТИСТИКА:")
+        logger.info(f"   📝 Постов: {count_posts}")
+        logger.info(f"   📺 СТОРИС: {count_stories}")
+        logger.info(f"   🎥 Кружков: {count_circles}")
+        logger.info(f"   👁 Просмотры постов: {total_views}")
+        logger.info(f"   📺 Просмотры сторис: {story_views}")
+        logger.info(f"   ❤️ Реакции постов: {posts_reactions}")
+        logger.info(f"   💝 Реакции сторис: {stories_reactions}")
+        logger.info(f"   🎥 Реакции кружков: {circles_reactions}")
+        
         # НОВЫЕ РАСЧЕТЫ ПО ТЕХНИЧЕСКОМУ ЗАДАНИЮ
         
-        # 1. ER (Engagement Rate) - НОВАЯ ФОРМУЛА: (реакции / просмотры) * 100%
-        if total_views > 0:
-            er = (total_reactions / total_views) * 100
+        # 1. ER (Engagement Rate) - УМНАЯ ФОРМУЛА
+        # Для постов: (реакции / просмотры) * 100%
+        # Общий ER: ((реакции_постов + реакции_сторис) / (просмотры_постов + просмотры_сторис)) * 100%
+        total_content_views = total_views + story_views
+        total_content_reactions = posts_reactions + stories_reactions + circles_reactions
+        
+        if total_content_views > 0:
+            er = (total_content_reactions / total_content_views) * 100
             er_formatted = f"{er:.2f}%"
         else:
             er_formatted = "0.00%"
             er = 0.0
         
-        # 2. VTR (View Through Rate) - среднее отношение просмотров к подписчикам
-        if current_subscribers > 0 and count_posts > 0:
-            avg_views_per_post = total_views / count_posts
-            vtr = (avg_views_per_post / current_subscribers) * 100
+        # 2. VTR (View Through Rate) - улучшенный расчет
+        total_content_count = count_posts + count_stories + count_circles
+        if current_subscribers > 0 and total_content_count > 0:
+            avg_views_per_content = total_content_views / total_content_count
+            vtr = (avg_views_per_content / current_subscribers) * 100
             vtr_formatted = f"{vtr:.1f}%"
         else:
             vtr_formatted = "0.0%"
             vtr = 0.0
         
-        # 3. Средние показатели (только для постов с реакциями/просмотрами)
+        # 3. УМНЫЕ СРЕДНИЕ ПОКАЗАТЕЛИ
         avg_post_reach = total_views // max(count_posts, 1) if count_posts > 0 else 0
         avg_story_reach = story_views // max(count_stories, 1) if count_stories > 0 else 0
+        avg_circle_reach = 0  # Кружки обычно не имеют просмотров как посты
         
-        # Средние реакции (только на посты с реакциями)
-        avg_post_reactions = sum(posts_with_reactions) // len(posts_with_reactions) if posts_with_reactions else 0
-        avg_circle_reactions = sum(circles_with_reactions) // len(circles_with_reactions) if circles_with_reactions else 0
-        avg_story_reactions = sum(stories_with_reactions) // len(stories_with_reactions) if stories_with_reactions else 0
+        # Средние реакции (умный расчет)
+        avg_post_reactions = posts_reactions // max(count_posts, 1) if count_posts > 0 else 0
+        avg_story_reactions = stories_reactions // max(count_stories, 1) if count_stories > 0 else 0
+        avg_circle_reactions = circles_reactions // max(count_circles, 1) if count_circles > 0 else 0
         
-        # 4. Анализ лучших часов с новой формулой ER
+        # 4. УМНЫЙ анализ лучших часов
         best_hours = []
         if posts_by_hour:
-            hour_ers = {}
+            hour_performance = {}
             for hour, stats in posts_by_hour.items():
-                if stats["views"] > 0 and stats["reactions"] > 0:
-                    hour_er = (stats["reactions"] / stats["views"]) * 100
-                    hour_ers[hour] = hour_er
+                if stats["views"] > 0:
+                    # Комплексная оценка: ER + абсолютные показатели
+                    hour_er = (stats["reactions"] / stats["views"]) * 100 if stats["reactions"] > 0 else 0
+                    # Нормализованная оценка (учитывает и ER и абсолютные цифры)
+                    performance_score = (hour_er * 0.6) + (stats["views"] / max(total_views, 1) * 100 * 0.4)
+                    hour_performance[hour] = {
+                        'score': performance_score,
+                        'er': hour_er,
+                        'views': stats["views"],
+                        'reactions': stats["reactions"]
+                    }
             
-            # Топ-3 часа с лучшим ER
-            sorted_hours = sorted(hour_ers.items(), key=lambda x: x[1], reverse=True)[:3]
-            best_hours = [(f"{hour:02d}:00–{(hour+1)%24:02d}:00", f"{er_val:.1f}%") for hour, er_val in sorted_hours]
+            # Топ-3 часа с лучшим performance score
+            sorted_hours = sorted(hour_performance.items(), key=lambda x: x[1]['score'], reverse=True)[:3]
+            best_hours = [(f"{hour:02d}:00–{(hour+1)%24:02d}:00", f"ER:{data['er']:.1f}% Views:{data['views']}") for hour, data in sorted_hours]
         
-        # 5. Температура канала (обновленная формула)
-        if total_views > 0:
-            temp_score = min(5, (er / 2.0) + (vtr / 30.0))
+        # Временная заглушка для new_subscribers (пока не реализован подсчет роста)
+        new_subscribers = 0  # TODO: Реализовать подсчет изменения подписчиков
+        
+        # 5. УМНАЯ температура канала
+        if total_content_views > 0 and current_subscribers > 0:
+            # Многофакторная оценка температуры
+            er_factor = min(2.5, er / 2.0)  # ER фактор (макс 2.5)
+            vtr_factor = min(1.5, vtr / 20.0)  # VTR фактор (макс 1.5) 
+            activity_factor = min(1.0, total_content_count / 30.0)  # Активность (макс 1.0)
+            temp_score = er_factor + vtr_factor + activity_factor
         else:
             temp_score = 0
-            
-        fire_count = int(temp_score)
-        temperature = "🔥" * fire_count + "⬜" * (5 - fire_count)
         
-        # 6. Рейтинг ER (обновленные пороги для новой формулы)
-        if er >= 5: er_rating = "🔥 Отлично"
-        elif er >= 3: er_rating = "✅ Хорошо"
-        elif er >= 1.5: er_rating = "⚠️ Средне"
-        else: er_rating = "❌ Плохо"
+        # УМНОЕ определение температуры
+        if temp_score >= 4.0:
+            temperature = "🔥 ГОРЯЧИЙ (Отличная вовлеченность!)"
+        elif temp_score >= 3.0:
+            temperature = "♨️ ТЕПЛЫЙ (Хорошие показатели)"
+        elif temp_score >= 2.0:
+            temperature = "🌡️ УМЕРЕННЫЙ (Средние показатели)"
+        elif temp_score >= 1.0:
+            temperature = "❄️ ПРОХЛАДНЫЙ (Низкие показатели)"
+        else:
+            temperature = "🧊 ХОЛОДНЫЙ (Нужна активизация)"
         
-        # Рассчитываем средние значения
-        avg_post_reach = total_views // count_posts if count_posts > 0 else 0
-        avg_story_reach = story_views // count_stories if count_stories > 0 else 0
-        avg_story_likes = stories_reactions // count_stories if count_stories > 0 else 0
+        # 6. АНАЛИТИКА ТРЕНДОВ (улучшенная)
+        growth_icon = "📈" if new_subscribers > 0 else "📉" if new_subscribers < 0 else "➡️"
+        growth_text = f"{growth_icon} {new_subscribers:+d}" if new_subscribers != 0 else "➡️ 0"
         
-        # ЛОГИРОВАНИЕ ДЛЯ АНАЛИТИКА (отладка)
-        logger.info(f"📊 АНАЛИТИКА НАЙДЕНО:")
-        logger.info(f"   📝 Постов: {count_posts}")
-        logger.info(f"   📺 СТОРИС: {count_stories} (видео: {count_stories - (story_views > 0 and count_stories > 0)}, фото: остальные)")
-        logger.info(f"   🎥 Кружков: {count_circles}")
-        logger.info(f"   👁 Просмотры СТОРИС: {story_views}")
-        logger.info(f"   ❤️ Лайки СТОРИС: {stories_reactions}")
-        logger.info(f"   🔄 Пересылки СТОРИС: {story_forwards}")
+        # 7. УМНЫЕ РЕКОМЕНДАЦИИ
+        recommendations = []
+        
+        if er < 1.0:
+            recommendations.append("💡 Низкий ER - попробуйте более интерактивный контент")
+        if vtr < 15.0:
+            recommendations.append("📊 Низкий VTR - поработайте над заголовками и превью")
+        if count_stories < count_posts // 3:
+            recommendations.append("📺 Добавьте больше Stories для разнообразия")
+        if not best_hours:
+            recommendations.append("⏰ Экспериментируйте с временем публикаций")
+        if count_circles == 0:
+            recommendations.append("🎥 Попробуйте Кружки для повышения вовлеченности")
+        
+        # Если рекомендации пустые - добавляем позитивные
+        if not recommendations:
+            recommendations.append("✅ Отличная работа! Продолжайте в том же духе")
+        
+        logger.info(f"🌡️ Температура канала: {temperature} (Score: {temp_score:.2f})")
+        logger.info(f"📊 Рекомендации: {len(recommendations)} предложений")
         
         return {
-            'title': getattr(channel, 'title', 'Неизвестный канал'),  # Добавлено для графиков
-            'joined': 0,  # Не доступно через API
-            'left': 0,   # Не доступно через API
             'posts': count_posts,
             'stories': count_stories,
             'circles': count_circles,
+            'total_views': total_views,
+            'story_views': story_views,
+            'posts_reactions': posts_reactions,
+            'stories_reactions': stories_reactions,
+            'circles_reactions': circles_reactions,
+            'er': er_formatted,
+            'vtr': vtr_formatted,
             'avg_post_reach': avg_post_reach,
             'avg_story_reach': avg_story_reach,
-            'avg_story_likes': avg_story_likes,
-            'er': er_formatted,
-            'er_numeric': er,
-            'er_rating': er_rating,
-            'vtr': vtr_formatted,
-            'temperature': temperature,
-            'temperature_score': f"({fire_count}/5)",
-            'current_subscribers': current_subscribers,
-            'participants_count': current_subscribers,  # Для совместимости с генератором
-            'total_views': total_views,
-            'total_reactions': total_reactions,
-            'posts_reactions': posts_reactions,  # ✅ НОВОЕ: Реакции только на посты
-            'story_likes': stories_reactions,  # ✅ УТОЧНЕНО: Реакции на видео-контент
-            'total_forwards': total_forwards,
-            'total_engagement': total_reactions + total_forwards,
+            'avg_circle_reach': avg_circle_reach,
+            'avg_post_reactions': avg_post_reactions,
+            'avg_story_reactions': avg_story_reactions,
+            'avg_circle_reactions': avg_circle_reactions,
             'best_hours': best_hours,
-            'message_count': message_count,  # Для отладки
-            'access_confirmed': True  # Подтверждение доступа
+            'temperature': temperature,
+            'new_subscribers': new_subscribers,
+            'current_subscribers': current_subscribers,
+            'growth_text': growth_text,
+            'recommendations': recommendations,
+            'access_confirmed': True
         }
         
     except Exception as e:
@@ -1629,19 +1688,35 @@ async def daily_report_command(update, context):
         username = real_stats.get('username', 'неизвестно')
         participants = real_stats.get('participants_count', 0)
         
-        # Исправляем расчет реакций - считаем ВСЕ реакции
-        total_post_reactions = analytics.get('posts_reactions', 0)  # Реакции только на посты
-        total_story_reactions = analytics.get('story_likes', 0)  # Реакции на видео-контент
-        total_all_reactions = analytics.get('total_reactions', 0)  # Все реакции
+        # Исправляем расчет реакций - используем новые данные
+        posts_reactions = analytics.get('posts_reactions', 0)
+        stories_reactions = analytics.get('stories_reactions', 0)
+        circles_reactions = analytics.get('circles_reactions', 0)
+        total_all_reactions = posts_reactions + stories_reactions + circles_reactions
         
-        # Исправленные расчеты для идеального отчета
-        total_post_reactions = analytics.get('posts_reactions', 0)  # Общая сумма реакций на посты
-        total_story_reactions = analytics.get('stories_reactions', 0)  # Общая сумма реакций на сторис
+        # Новые улучшенные показатели
+        temperature = analytics.get('temperature', '🌡️ НЕИЗВЕСТНО')
+        recommendations = analytics.get('recommendations', [])
+        best_hours = analytics.get('best_hours', [])
         
         # Прогнозируем подписки/отписки на основе активности (алгоритм)
         estimated_subscribed = max(analytics['posts'] * 3 + analytics['stories'] * 2, 5)  # Примерно 3-5 на пост
         estimated_unsubscribed = max(int(estimated_subscribed * 0.3), 1)  # 30% отписываются
         net_growth = estimated_subscribed - estimated_unsubscribed
+        
+        # Формируем строку лучших часов
+        best_hours_text = ""
+        if best_hours:
+            best_hours_text = "\n\n⏰ <b>ЛУЧШИЕ ЧАСЫ ДЛЯ ПУБЛИКАЦИЙ:</b>\n"
+            for i, (time_slot, performance) in enumerate(best_hours[:3], 1):
+                best_hours_text += f"{i}. {time_slot} - {performance}\n"
+        
+        # Формируем рекомендации
+        recommendations_text = ""
+        if recommendations:
+            recommendations_text = "\n\n💡 <b>РЕКОМЕНДАЦИИ:</b>\n"
+            for rec in recommendations[:3]:  # Топ-3 рекомендации
+                recommendations_text += f"• {rec}\n"
         
         await update.message.reply_text(
             f"📅 <b>ЕЖЕДНЕВНЫЙ ОТЧЕТ</b>\n\n"
@@ -1655,14 +1730,27 @@ async def daily_report_command(update, context):
             
             f"💎 <b>КОНТЕНТ ЗА СУТКИ:</b>\n"
             f"📝 Постов: {analytics['posts']}\n"
-            f"🎬 Видео-контента: {analytics['stories']}\n"
-            f"🎥 Кружков: {analytics['circles']}\n\n"
+            f"� Сторис: {analytics['stories']}\n"
+            f"� Кружков: {analytics['circles']}\n\n"
             
-            f"💫 <b>ОХВАТ И ВОВЛЕЧЕННОСТЬ:</b>\n"
-            f"⚡ Средний охват: {analytics['avg_post_reach']:,}\n"
-            f"❤️ Всего реакций на посты: {analytics.get('total_reactions', 0)}\n"
-            f"🔄 Общая вовлеченность (ER): {analytics['er']}\n"
-            f"👀 Просматриваемость (VTR): {analytics.get('vtr', 'N/A')}\n\n"
+            f"� <b>ОХВАТЫ И ПРОСМОТРЫ:</b>\n"
+            f"👁 Просмотры постов: {analytics['total_views']:,}\n"
+            f"📺 Просмотры сторис: {analytics['story_views']:,}\n"
+            f"⚡ Средний охват поста: {analytics['avg_post_reach']:,}\n"
+            f"🎥 Средний охват сторис: {analytics['avg_story_reach']:,}\n\n"
+            
+            f"❤️ <b>РЕАКЦИИ И ВОВЛЕЧЕННОСТЬ:</b>\n"
+            f"📝 Реакции на посты: {posts_reactions:,}\n"
+            f"🎬 Реакции на сторис: {stories_reactions:,}\n"
+            f"🎯 Реакции на кружки: {circles_reactions:,}\n"
+            f"💫 Всего реакций: {total_all_reactions:,}\n"
+            f"� ER (Вовлеченность): {analytics['er']}\n"
+            f"👀 VTR (Просматриваемость): {analytics['vtr']}\n\n"
+            
+            f"🌡️ <b>ТЕМПЕРАТУРА КАНАЛА:</b>\n"
+            f"{temperature}"
+            f"{best_hours_text}"
+            f"{recommendations_text}\n\n"
             
             f"✅ <i>Данные получены через Telethon API | {now.strftime('%d.%m.%Y %H:%M')}</i>",
             parse_mode='HTML'
@@ -1902,14 +1990,39 @@ async def week_report_command(update, context):
         username = real_stats.get('username', 'неизвестно')
         participants = real_stats.get('participants_count', 0)
         
+        # Новые улучшенные показатели за неделю
+        posts_reactions = analytics.get('posts_reactions', 0)
+        stories_reactions = analytics.get('stories_reactions', 0)
+        circles_reactions = analytics.get('circles_reactions', 0)
+        total_all_reactions = posts_reactions + stories_reactions + circles_reactions
+        
         # Средние показатели за неделю
         avg_posts_per_day = analytics['posts'] / 7 if analytics['posts'] > 0 else 0
-        avg_post_reactions = analytics.get('total_reactions', 0) // max(analytics['posts'], 1) if analytics['posts'] > 0 else 0
+        avg_reactions_per_post = posts_reactions // max(analytics['posts'], 1) if analytics['posts'] > 0 else 0
+        
+        # Новые улучшенные показатели
+        temperature = analytics.get('temperature', '🌡️ НЕИЗВЕСТНО')
+        recommendations = analytics.get('recommendations', [])
+        best_hours = analytics.get('best_hours', [])
         
         # Прогнозируем подписки/отписки на основе недельной активности
         estimated_subscribed = max(analytics['posts'] * 4 + analytics['stories'] * 3, 20)  # Больше для недели
         estimated_unsubscribed = max(int(estimated_subscribed * 0.25), 5)  # 25% отписываются за неделю
         net_growth = estimated_subscribed - estimated_unsubscribed
+        
+        # Формируем строку лучших часов
+        best_hours_text = ""
+        if best_hours:
+            best_hours_text = "\n\n⏰ <b>ЛУЧШИЕ ЧАСЫ ДЛЯ ПУБЛИКАЦИЙ:</b>\n"
+            for i, (time_slot, performance) in enumerate(best_hours[:3], 1):
+                best_hours_text += f"{i}. {time_slot} - {performance}\n"
+        
+        # Формируем рекомендации
+        recommendations_text = ""
+        if recommendations:
+            recommendations_text = "\n\n💡 <b>РЕКОМЕНДАЦИИ НА НЕДЕЛЮ:</b>\n"
+            for rec in recommendations[:3]:  # Топ-3 рекомендации
+                recommendations_text += f"• {rec}\n"
         
         await status_msg.edit_text(
             f"📊 <b>ЕЖЕНЕДЕЛЬНЫЙ ОТЧЕТ</b>\n\n"
@@ -1924,20 +2037,28 @@ async def week_report_command(update, context):
             
             f"💎 <b>КОНТЕНТ ЗА НЕДЕЛЮ:</b>\n"
             f"📝 Постов: {analytics['posts']} (≈{avg_posts_per_day:.1f}/день)\n"
-            f"🎬 Видео-контента: {analytics['stories']}\n"
-            f"🎥 Кружков: {analytics['circles']}\n\n"
+            f"� Сторис: {analytics['stories']}\n"
+            f"� Кружков: {analytics['circles']}\n\n"
             
-            f"💫 <b>ОХВАТ И ВОВЛЕЧЕННОСТЬ:</b>\n"
-            f"⚡ Средний охват: {analytics['avg_post_reach']:,}\n"
-            f"❤️ Всего реакций на посты: {analytics.get('total_reactions', 0)}\n"
-            f"💝 Средние реакции на пост: {avg_post_reactions}\n"
-            f"🔄 Общая вовлеченность (ER): {analytics['er']}\n"
-            f"👀 Просматриваемость (VTR): {analytics.get('vtr', 'N/A')}\n\n"
+            f"� <b>ОХВАТЫ И ПРОСМОТРЫ:</b>\n"
+            f"👁 Просмотры постов: {analytics['total_views']:,}\n"
+            f"📺 Просмотры сторис: {analytics['story_views']:,}\n"
+            f"⚡ Средний охват поста: {analytics['avg_post_reach']:,}\n"
+            f"🎥 Средний охват сторис: {analytics['avg_story_reach']:,}\n\n"
             
-            f"📈 <b>АКТИВНОСТЬ:</b>\n"
-            f"📊 Всего просмотров: {analytics.get('total_views', 0):,}\n"
-            f"🔄 Всего пересылок: {analytics.get('total_forwards', 0):,}\n"
-            f"⏰ Лучшие часы: {', '.join([f'{h[0]}' for h in analytics.get('best_hours', [])[:3]]) if analytics.get('best_hours') else 'Накапливаются данные'}\n\n"
+            f"❤️ <b>РЕАКЦИИ И ВОВЛЕЧЕННОСТЬ:</b>\n"
+            f"📝 Реакции на посты: {posts_reactions:,}\n"
+            f"🎬 Реакции на сторис: {stories_reactions:,}\n"
+            f"🎯 Реакции на кружки: {circles_reactions:,}\n"
+            f"💫 Всего реакций: {total_all_reactions:,}\n"
+            f"💝 Средние реакции на пост: {avg_reactions_per_post}\n"
+            f"� ER (Вовлеченность): {analytics['er']}\n"
+            f"👀 VTR (Просматриваемость): {analytics['vtr']}\n\n"
+            
+            f"🌡️ <b>ТЕМПЕРАТУРА КАНАЛА:</b>\n"
+            f"{temperature}"
+            f"{best_hours_text}"
+            f"{recommendations_text}\n\n"
             
             f"✅ <i>Данные получены через Telethon API | {now.strftime('%d.%m.%Y %H:%M')}</i>",
             parse_mode='HTML'
