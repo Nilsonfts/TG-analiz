@@ -1686,18 +1686,18 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def daily_report_command(update, context):
-    """Команда /daily_report — ежедневный отчет за последние сутки (06:00-06:00)"""
+    """Команда /daily_report — ежедневный отчет за предыдущий день (00:00-23:59)"""
     from datetime import datetime, timedelta, time
-    import pytz
     import pytz
     
     # Временная зона (можно вынести в конфиг)
     tz = pytz.timezone('Europe/Moscow')
     now = datetime.now(tz)
-    end = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now.hour < 6:
-        end = end - timedelta(days=0)
-    start = end - timedelta(days=1)
+    
+    # Вчерашний день: с 00:00 до 23:59
+    yesterday = now - timedelta(days=1)
+    start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
     
     # Получаем информацию о канале
     real_stats = await get_real_channel_stats()
@@ -1732,7 +1732,7 @@ async def daily_report_command(update, context):
             f"📈 <b>Новых подписок:</b> ~{estimated_subscribed}\n"
             f"📉 <b>Отписалось:</b> ~{estimated_unsubscribed}\n"
             f"📊 <b>Чистый прирост:</b> {'+' if net_growth >= 0 else ''}{net_growth}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m.%Y')} (весь день)\n\n"
             
             f"💎 <b>КОНТЕНТ ЗА СУТКИ:</b>\n"
             f"📝 Постов: {analytics['posts']}\n"
@@ -1752,7 +1752,7 @@ async def daily_report_command(update, context):
         await update.message.reply_text(
             f"📅 <b>Ежедневный отчет</b>\n"
             f"📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m.%Y')} (весь день)\n\n"
             f"❌ <b>Проблема с доступом к данным:</b>\n"
             f"🔍 {analytics.get('message', 'Неизвестная ошибка')}\n\n"
             f"🔧 <b>Решения:</b>\n"
@@ -1764,7 +1764,7 @@ async def daily_report_command(update, context):
     else:
         await update.message.reply_text(
             f"📅 <b>Ежедневный отчет</b>\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m.%Y')} (весь день)\n\n"
             f"❌ <b>Не удалось получить данные за сутки</b>\n\n"
             f"🔧 <b>Возможные причины:</b>\n"
             f"• Telethon не настроен (нужны API_ID, API_HASH, SESSION_STRING)\n"
@@ -1775,16 +1775,18 @@ async def daily_report_command(update, context):
         )
 
 async def monthly_report_command(update, context):
-    """Команда /monthly_report — отчет за последние 30 дней (06:00-06:00)"""
+    """Команда /monthly_report — отчет за последние 30 дней (полные дни 00:00-23:59)"""
     from datetime import datetime, timedelta, time
     import pytz
     
     tz = pytz.timezone('Europe/Moscow')
     now = datetime.now(tz)
-    end = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now.hour < 6:
-        end = end - timedelta(days=0)
-    start = end - timedelta(days=30)
+    
+    # Последние 30 полных дней: с начала 30 дней назад до конца вчерашнего дня
+    yesterday = now - timedelta(days=1)
+    end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+    month_start = yesterday - timedelta(days=29)  # 30 дней включая вчерашний
+    start = month_start.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Получаем информацию о канале
     real_stats = await get_real_channel_stats()
@@ -1822,7 +1824,7 @@ async def monthly_report_command(update, context):
             f"📺 <b>Канал:</b> {channel_name}\n"
             f"🔗 <b>Username:</b> @{username}\n"
             f"👥 <b>Подписчики:</b> {participants:,}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} (30 дней)\n\n"
             
             f"📊 <b>АКТИВНОСТЬ ЗА МЕСЯЦ:</b>\n"
             f"📝 Всего постов: {analytics['posts']} (≈{avg_posts_per_day:.1f}/день)\n"
@@ -1865,7 +1867,7 @@ async def monthly_report_command(update, context):
         await status_msg.edit_text(
             f"📆 <b>Месячный отчет</b>\n"
             f"📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} (30 дней)\n\n"
             f"❌ <b>Проблема с доступом к данным:</b>\n"
             f"🔍 {analytics.get('message', 'Неизвестная ошибка')}\n\n"
             f"🔧 <b>Решения:</b>\n"
@@ -1878,7 +1880,7 @@ async def monthly_report_command(update, context):
     else:
         await status_msg.edit_text(
             f"📆 <b>Месячный отчет</b>\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} (30 дней)\n\n"
             f"❌ <b>Не удалось получить данные за месяц</b>\n\n"
             f"🔧 <b>Возможные причины:</b>\n"
             f"• Telethon не настроен\n"
@@ -1890,17 +1892,19 @@ async def monthly_report_command(update, context):
         )
 
 async def week_report_command(update, context):
-    """Команда /week_report — еженедельный отчет за последние 7 дней (06:00-06:00)"""
+    """Команда /week_report — еженедельный отчет за последние 7 дней (полные дни 00:00-23:59)"""
     from datetime import datetime, timedelta, time
     import pytz
     
     # Временная зона (можно вынести в конфиг)
     tz = pytz.timezone('Europe/Moscow')
     now = datetime.now(tz)
-    end = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now.hour < 6:
-        end = end - timedelta(days=0)
-    start = end - timedelta(days=7)
+    
+    # Последние 7 полных дней: с начала 7 дней назад до конца вчерашнего дня
+    yesterday = now - timedelta(days=1)
+    end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+    week_start = yesterday - timedelta(days=6)  # 7 дней включая вчерашний
+    start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Получаем информацию о канале
     real_stats = await get_real_channel_stats()
@@ -1938,7 +1942,7 @@ async def week_report_command(update, context):
             f"📈 <b>Новых подписок:</b> ~{estimated_subscribed}\n"
             f"📉 <b>Отписалось:</b> ~{estimated_unsubscribed}\n"
             f"📊 <b>Чистый прирост:</b> {'+' if net_growth >= 0 else ''}{net_growth}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} (7 дней)\n\n"
             
             f"💎 <b>КОНТЕНТ ЗА НЕДЕЛЮ:</b>\n"
             f"📝 Постов: {analytics['posts']} (≈{avg_posts_per_day:.1f}/день)\n"
@@ -1964,7 +1968,7 @@ async def week_report_command(update, context):
         await status_msg.edit_text(
             f"📊 <b>Еженедельный отчет</b>\n"
             f"📺 <b>Канал:</b> {real_stats.get('title', 'Неизвестный') if real_stats else CHANNEL_ID}\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} (7 дней)\n\n"
             f"❌ <b>Проблема с доступом к данным:</b>\n"
             f"🔍 {analytics.get('message', 'Неизвестная ошибка')}\n\n"
             f"🔧 <b>Решения:</b>\n"
@@ -1976,7 +1980,7 @@ async def week_report_command(update, context):
     else:
         await status_msg.edit_text(
             f"📊 <b>Еженедельный отчет</b>\n"
-            f"⏰ <b>Период:</b> {start.strftime('%d.%m %H:%M')} — {end.strftime('%d.%m %H:%M')}\n\n"
+            f"⏰ <b>Период:</b> {start.strftime('%d.%m')} — {end.strftime('%d.%m.%Y')} (7 дней)\n\n"
             f"❌ <b>Не удалось получить данные за неделю</b>\n\n"
             f"🔧 <b>Возможные причины:</b>\n"
             f"• Telethon не настроен (нужны API_ID, API_HASH, SESSION_STRING)\n"
