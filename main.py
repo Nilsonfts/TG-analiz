@@ -446,26 +446,26 @@ async def get_channel_analytics_data(start_date, end_date):
         else: er_rating = "❌ Плохо"
         
         # Рассчитываем средние значения
-        avg_post_reach = total_views // posts if posts > 0 else 0
-        avg_story_reach = story_views // stories if stories > 0 else 0
-        avg_story_likes = story_likes // stories if stories > 0 else 0
+        avg_post_reach = total_views // count_posts if count_posts > 0 else 0
+        avg_story_reach = story_views // count_stories if count_stories > 0 else 0
+        avg_story_likes = stories_reactions // count_stories if count_stories > 0 else 0
         
         # ЛОГИРОВАНИЕ ДЛЯ АНАЛИТИКА (отладка)
         logger.info(f"📊 АНАЛИТИКА НАЙДЕНО:")
-        logger.info(f"   📝 Постов: {posts}")
-        logger.info(f"   📺 СТОРИС: {stories} (видео: {stories - (story_views > 0 and stories > 0)}, фото: остальные)")
-        logger.info(f"   🎥 Кружков: {circles}")
+        logger.info(f"   📝 Постов: {count_posts}")
+        logger.info(f"   📺 СТОРИС: {count_stories} (видео: {count_stories - (story_views > 0 and count_stories > 0)}, фото: остальные)")
+        logger.info(f"   🎥 Кружков: {count_circles}")
         logger.info(f"   👁 Просмотры СТОРИС: {story_views}")
-        logger.info(f"   ❤️ Лайки СТОРИС: {story_likes}")
+        logger.info(f"   ❤️ Лайки СТОРИС: {stories_reactions}")
         logger.info(f"   🔄 Пересылки СТОРИС: {story_forwards}")
         
         return {
             'title': getattr(channel, 'title', 'Неизвестный канал'),  # Добавлено для графиков
-            'joined': joined,
-            'left': left,
-            'posts': posts,
-            'stories': stories,
-            'circles': circles,
+            'joined': 0,  # Не доступно через API
+            'left': 0,   # Не доступно через API
+            'posts': count_posts,
+            'stories': count_stories,
+            'circles': count_circles,
             'avg_post_reach': avg_post_reach,
             'avg_story_reach': avg_story_reach,
             'avg_story_likes': avg_story_likes,
@@ -480,7 +480,7 @@ async def get_channel_analytics_data(start_date, end_date):
             'total_views': total_views,
             'total_reactions': total_reactions,
             'posts_reactions': posts_reactions,  # ✅ НОВОЕ: Реакции только на посты
-            'story_likes': story_likes,  # ✅ УТОЧНЕНО: Реакции на видео-контент
+            'story_likes': stories_reactions,  # ✅ УТОЧНЕНО: Реакции на видео-контент
             'total_forwards': total_forwards,
             'total_engagement': total_reactions + total_forwards,
             'best_hours': best_hours,
