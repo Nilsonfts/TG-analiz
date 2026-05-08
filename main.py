@@ -885,33 +885,54 @@ def start_http_server() -> None:
         raise
 
 # Команды бота
+def build_main_menu() -> InlineKeyboardMarkup:
+    """Главное inline-меню для удобного запуска аналитики."""
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 Аналитика", callback_data="menu_analiz"),
+            InlineKeyboardButton("🌡️ Сводка", callback_data="menu_summary"),
+        ],
+        [
+            InlineKeyboardButton("📈 Рост", callback_data="menu_growth"),
+            InlineKeyboardButton("🧠 Инсайты", callback_data="menu_insights"),
+        ],
+        [
+            InlineKeyboardButton("📅 Daily", callback_data="menu_daily_report"),
+            InlineKeyboardButton("📊 Week", callback_data="menu_week_report"),
+            InlineKeyboardButton("🗓 Month", callback_data="menu_monthly_report"),
+        ],
+        [
+            InlineKeyboardButton("📊 SMM-отчет", callback_data="menu_smm"),
+            InlineKeyboardButton("📈 Charts", callback_data="menu_charts"),
+        ],
+        [
+            InlineKeyboardButton("📄 CSV", callback_data="menu_export_csv"),
+            InlineKeyboardButton("📊 Google", callback_data="menu_export_google"),
+        ],
+        [
+            InlineKeyboardButton("ℹ️ О канале", callback_data="menu_channel_info"),
+            InlineKeyboardButton("⚙️ Статус", callback_data="menu_status"),
+            InlineKeyboardButton("❓ Помощь", callback_data="menu_help"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start"""
     # Проверяем подключение к каналу
     channel_status = "🔗 Подключен" if CHANNEL_ID else "⚠️ Не настроен"
     api_status = "🔗 Подключен" if API_ID and API_HASH else "⚠️ Нужны API_ID и API_HASH"
-    
+
     await update.message.reply_text(
         "🚀 <b>Telegram Channel Analytics Bot</b>\n\n"
         "✅ Бот успешно работает на Railway!\n"
         f"📊 Канал: {channel_status}\n"
         f"🔧 Telegram API: {api_status}\n\n"
-        "📋 Доступные команды:\n"
-        "• /summary - Статистика канала\n"
-        "• /growth - Рост подписчиков\n"
-        "• /analiz - Визуальная аналитика\n"
-        "• /insights - Маркетинговые инсайты\n"
-        "• /charts - 📊 SMART ANALYTICS (НОВОЕ!)\n"
-        "• /smm - 📊 Еженедельный SMM-отчет\n"
-        "• /export_csv - 📄 Экспорт в CSV\n"
-        "• /export_google - 📈 Google Sheets (скоро)\n"
-        "• /daily_report - Ежедневный отчет\n"
-        "• /week_report - Еженедельный отчет\n"
-        "• /monthly_report - Месячный отчет\n"
-        "• /channel_info - Информация о канале\n"
-        "• /help - Помощь\n\n"
+        "👇 <b>Выберите действие в меню</b> или используйте команду /help для полного списка.\n\n"
         f"🔧 <i>ID канала: {CHANNEL_ID or 'не установлен'}</i>",
-        parse_mode='HTML'
+        parse_mode='HTML',
+        reply_markup=build_main_menu(),
     )
 
 async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1469,6 +1490,53 @@ async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
 
+
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Маршрутизация нажатий кнопок главного меню в соответствующие команды."""
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data.replace("menu_", "", 1)
+
+    # Карта: action -> функция-обработчик команды
+    handlers_map = {
+        "analiz": analiz_command,
+        "summary": summary_command,
+        "growth": growth_command,
+        "insights": insights_command,
+        "charts": charts_command,
+        "smm": smm_command,
+        "daily_report": daily_report_command,
+        "week_report": week_report_command,
+        "monthly_report": monthly_report_command,
+        "export_csv": export_csv_command,
+        "export_google": export_google_command,
+        "channel_info": channel_info_command,
+        "status": status_command,
+        "help": help_command,
+    }
+
+    handler = handlers_map.get(action)
+    if not handler:
+        await query.message.reply_text(
+            f"⚠️ Неизвестное действие: <code>{action}</code>",
+            parse_mode='HTML',
+        )
+        return
+
+    # Подменяем update.message на сообщение с кнопками,
+    # чтобы существующие команды (использующие update.message.reply_text) работали как обычно.
+    proxy_update = Update(update_id=update.update_id, message=query.message)
+    try:
+        await handler(proxy_update, context)
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки кнопки меню '{action}': {e}")
+        await query.message.reply_text(
+            f"❌ Не удалось выполнить действие: <code>{action}</code>\n<i>{e}</i>",
+            parse_mode='HTML',
+        )
+
+
 async def handle_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка нажатий кнопок графиков"""
     query = update.callback_query
@@ -1538,22 +1606,26 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ <b>Справка по боту</b>\n\n"
         "🚀 <b>Статус:</b> Railway деплой активен\n\n"
-        "📊 <b>Команды:</b>\n"
-        "• /start - Информация о боте\n"
-        "• /status - Статус всех систем\n"
-        "• /analiz - 📊 Визуальная аналитика канала\n"
-        "• /insights - 🧠 Маркетинговые инсайты\n"
-        "• /summary - 🌡️ Маркетинговая сводка\n"
-        "• /growth - 📈 Анализ роста с прогнозами\n"
-        "• /charts - Интерактивные графики\n"
-        "• /smm - 📊 Еженедельный SMM-отчет\n"
-        "• /daily_report - 📅 Ежедневный отчет\n"
-        "• /week_report - 📊 Еженедельный отчет\n"
-        "• /monthly_report - 📆 Месячный отчет\n"
-        "• /export_csv - 📄 Экспорт в CSV (30 дней)\n"
-        "• /export_google - 📊 Данные для Google Sheets\n"
-        "• /channel_info - Информация о канале\n"
-        "• /help - Эта справка\n\n"
+        "� Кнопки ниже запускают аналитику в один клик.\n\n"
+        "📊 <b>Аналитика и отчёты:</b>\n"
+        "• /analiz — визуальная аналитика канала (PNG)\n"
+        "• /summary — маркетинговая сводка (ER, ERR, VTR)\n"
+        "• /growth — анализ роста с прогнозами\n"
+        "• /insights — маркетинговые инсайты\n"
+        "• /charts — интерактивные графики\n"
+        "• /smm — еженедельный SMM-отчёт\n\n"
+        "📅 <b>Периодические отчёты:</b>\n"
+        "• /daily_report — ежедневный отчёт\n"
+        "• /week_report — еженедельный отчёт\n"
+        "• /monthly_report — месячный отчёт\n\n"
+        "📤 <b>Экспорт:</b>\n"
+        "• /export_csv — CSV за 30 дней\n"
+        "• /export_google — данные для Google Sheets\n\n"
+        "ℹ️ <b>Сервис:</b>\n"
+        "• /start — стартовый экран\n"
+        "• /status — статус систем и диагностика\n"
+        "• /channel_info — информация о канале\n"
+        "• /help — эта справка\n\n"
         "⚠️ <b>Ограничения Telegram API:</b>\n"
         "• Точные подписки/отписки недоступны\n"
         "• Уведомления недоступны через публичный API\n"
@@ -1569,27 +1641,45 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2. 🔄 Добавьте переменные окружения\n"
         "3. 📊 Подключите каналы для аналитики\n\n"
         "💡 <b>Документация:</b> GitHub > SETUP.md",
-        parse_mode='HTML'
+        parse_mode='HTML',
+        reply_markup=build_main_menu(),
     )
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /status - полный статус всех систем"""
     # Проверка основных компонентов
     bot_status = "✅ Активен"
-    
+
     # Проверка Telethon
     telethon_status = "✅ Активен" if telethon_client else "❌ Не подключен"
-    
+
     # Проверка базы данных (пока базовая проверка)
     db_status = "✅ Подключена"  # Предполагаем что работает, если нет ошибок
-    
+
     # Проверка аналитики через реальные данные
     real_stats = await get_real_channel_stats()
-    analytics_status = "✅ Подключена" if real_stats else "❌ Отключена"
-    
+    if real_stats:
+        analytics_status = "✅ Подключена"
+        analytics_hint = ""
+    elif telethon_client and CHANNEL_ID:
+        analytics_status = "⚠️ Канал недоступен"
+        analytics_hint = (
+            "\n\n🔎 <i>Telethon подключён, но не удалось прочитать канал "
+            f"<code>{CHANNEL_ID}</code>. Проверьте, что аккаунт SESSION_STRING "
+            "состоит в канале и имеет права на чтение.</i>"
+        )
+    else:
+        analytics_status = "❌ Отключена"
+        analytics_hint = (
+            "\n\n🔎 <i>Не настроен Telethon (SESSION_STRING/API_ID/API_HASH) "
+            "или CHANNEL_ID.</i>"
+        )
+
     # Проверка планировщика (пока базовая)
     scheduler_status = "✅ Работает"
-    
+
+    healthy = bot_status == "✅ Активен" and analytics_status == "✅ Подключена"
+
     await update.message.reply_text(
         f"📊 <b>Статус систем</b>\n\n"
         f"🤖 <b>Бот:</b> {bot_status}\n"
@@ -1600,8 +1690,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🆔 <b>Канал ID:</b> <code>{CHANNEL_ID}</code>\n"
         f"🚀 <b>Платформа:</b> Railway\n"
         f"🔧 <b>API:</b> {'✅ Настроен' if API_ID and API_HASH else '❌ Не настроен'}\n\n"
-        f"{'✅ <b>Все системы работают!</b>' if all([bot_status == '✅ Активен', analytics_status == '✅ Подключена']) else '⚠️ <b>Есть проблемы с системами</b>'}",
-        parse_mode='HTML'
+        f"{'✅ <b>Все системы работают!</b>' if healthy else '⚠️ <b>Есть проблемы с системами</b>'}"
+        f"{analytics_hint}",
+        parse_mode='HTML',
+        reply_markup=build_main_menu(),
     )
 
 async def analiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2316,7 +2408,8 @@ async def main():
     application.add_handler(CommandHandler("export_google", export_google_command))
     
     # Add callback query handler for chart interactions
-    application.add_handler(CallbackQueryHandler(handle_chart_callback))
+    application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern=r"^menu_"))
+    application.add_handler(CallbackQueryHandler(handle_chart_callback, pattern=r"^chart_"))
     
     # Add handler for unknown commands
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
