@@ -135,6 +135,55 @@ async def init_telethon() -> bool:
         return False
 
 
+async def _resolve_channel_entity():
+    """Пытается получить entity канала разными способами.
+
+    Возвращает (entity, error_message). Если entity получено — error_message=None.
+    """
+    if not telethon_client or not CHANNEL_ID:
+        return None, "Telethon или CHANNEL_ID не настроены"
+
+    # 1) @username
+    if CHANNEL_ID.startswith('@'):
+        try:
+            return await telethon_client.get_entity(CHANNEL_ID), None
+        except Exception as e:
+            return None, f"get_entity('{CHANNEL_ID}'): {type(e).__name__}: {e}"
+
+    # 2) числовой ID — пробуем напрямую
+    try:
+        raw_id = int(CHANNEL_ID)
+    except ValueError:
+        return None, f"CHANNEL_ID '{CHANNEL_ID}' не является числом или @username"
+
+    try:
+        return await telethon_client.get_entity(raw_id), None
+    except Exception as e_direct:
+        direct_err = f"{type(e_direct).__name__}: {e_direct}"
+        logger.warning(f"get_entity({raw_id}) напрямую не удалось: {direct_err}. Пробуем через диалоги...")
+
+    # 3) Фолбэк: ищем канал в диалогах (там Telethon получит access_hash)
+    try:
+        # Для каналов с -100 префиксом ищем как по полному, так и по укороченному ID
+        candidates = {raw_id}
+        if str(raw_id).startswith('-100'):
+            candidates.add(int(str(raw_id)[4:]))  # 2155183792
+        candidates.add(abs(raw_id))
+
+        async for dialog in telethon_client.iter_dialogs(limit=500):
+            ent = dialog.entity
+            ent_id = getattr(ent, 'id', None)
+            if ent_id in candidates:
+                logger.info(f"✅ Канал найден через iter_dialogs: id={ent_id}, title={getattr(ent, 'title', '?')}")
+                return ent, None
+        return None, (
+            f"Канал {raw_id} не найден ни напрямую, ни в диалогах аккаунта. "
+            f"Скорее всего аккаунт SESSION_STRING не состоит в канале."
+        )
+    except Exception as e_fb:
+        return None, f"Фолбэк через iter_dialogs упал: {type(e_fb).__name__}: {e_fb}"
+
+
 async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
     """Get real channel statistics using Telethon.
     
@@ -143,14 +192,13 @@ async def get_real_channel_stats() -> Optional[Dict[str, Any]]:
     """
     if not telethon_client or not CHANNEL_ID:
         return None
-    
+
+    channel, err = await _resolve_channel_entity()
+    if channel is None:
+        logger.error(f"❌ Не удалось получить канал: {err}")
+        return None
+
     try:
-        # Get channel entity
-        if CHANNEL_ID.startswith('@'):
-            channel = await telethon_client.get_entity(CHANNEL_ID)
-        else:
-            channel = await telethon_client.get_entity(int(CHANNEL_ID))
-        
         # Get full channel info with participant count
         try:
             from telethon.tl import functions
@@ -190,12 +238,12 @@ async def get_channel_analytics_data(start_date, end_date):
     try:
         # Получаем сущность канала с детальным логированием
         logger.info(f"📊 Получаем данные канала: {CHANNEL_ID}")
-        
-        if CHANNEL_ID.startswith('@'):
-            channel = await telethon_client.get_entity(CHANNEL_ID)
-        else:
-            channel = await telethon_client.get_entity(int(CHANNEL_ID))
-        
+
+        channel, err = await _resolve_channel_entity()
+        if channel is None:
+            logger.error(f"❌ Не удалось получить канал: {err}")
+            return None
+
         logger.info(f"✅ Канал найден: {getattr(channel, 'title', 'Неизвестный канал')}")
         
         # Счетчики для аналитики (ОБНОВЛЕНО ПО ТЗ)
@@ -912,6 +960,7 @@ def build_main_menu() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("ℹ️ О канале", callback_data="menu_channel_info"),
             InlineKeyboardButton("⚙️ Статус", callback_data="menu_status"),
+            InlineKeyboardButton("🔬 Диагностика", callback_data="menu_diag"),
             InlineKeyboardButton("❓ Помощь", callback_data="menu_help"),
         ],
     ]
@@ -934,6 +983,74 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML',
         reply_markup=build_main_menu(),
     )
+
+
+async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /diag - глубокая диагностика подключения к каналу через Telethon."""
+    lines = ["🔬 <b>Диагностика Telethon</b>\n"]
+
+    # 1) Переменные окружения
+    lines.append(f"• <b>API_ID:</b> {'✅ задан' if API_ID else '❌ нет'}")
+    lines.append(f"• <b>API_HASH:</b> {'✅ задан' if API_HASH else '❌ нет'}")
+    lines.append(f"• <b>SESSION_STRING:</b> {'✅ задан' if SESSION_STRING else '❌ нет'}")
+    lines.append(f"• <b>CHANNEL_ID:</b> <code>{CHANNEL_ID or 'не задан'}</code>")
+    lines.append(f"• <b>Telethon client:</b> {'✅ инициализирован' if telethon_client else '❌ нет'}\n")
+
+    if not telethon_client:
+        await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+        return
+
+    # 2) get_me
+    try:
+        me = await telethon_client.get_me()
+        lines.append(
+            f"• <b>Аккаунт:</b> {me.first_name or ''} "
+            f"(@{me.username or '—'}, id=<code>{me.id}</code>)"
+        )
+    except Exception as e:
+        lines.append(f"• <b>get_me():</b> ❌ {type(e).__name__}: {e}")
+        await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+        return
+
+    # 3) Резолв канала
+    if not CHANNEL_ID:
+        await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+        return
+
+    channel, err = await _resolve_channel_entity()
+    if channel is None:
+        lines.append(f"\n❌ <b>Канал не получен:</b>\n<code>{err}</code>")
+        lines.append(
+            "\n💡 <b>Решение:</b>\n"
+            "1. Войдите в Telegram аккаунтом, под которым выпущен SESSION_STRING.\n"
+            "2. Подпишитесь на канал (или попросите админа добавить).\n"
+            "3. Откройте канал и пролистайте — это закрепит peer в диалогах.\n"
+            "4. Перевыпустите SESSION_STRING (если давно не использовали)."
+        )
+        await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+        return
+
+    lines.append(
+        f"\n✅ <b>Канал получен:</b>\n"
+        f"• title: <b>{getattr(channel, 'title', '?')}</b>\n"
+        f"• id: <code>{getattr(channel, 'id', '?')}</code>\n"
+        f"• username: @{getattr(channel, 'username', None) or '—'}\n"
+        f"• access_hash: <code>{getattr(channel, 'access_hash', None)}</code>"
+    )
+
+    # 4) GetFullChannel
+    try:
+        from telethon.tl import functions
+        full = await telethon_client(functions.channels.GetFullChannelRequest(channel))
+        lines.append(
+            f"\n✅ <b>GetFullChannel:</b>\n"
+            f"• participants: <b>{full.full_chat.participants_count or 0}</b>"
+        )
+    except Exception as e:
+        lines.append(f"\n⚠️ <b>GetFullChannel:</b> {type(e).__name__}: {e}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+
 
 async def channel_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /channel_info - информация о подключенном канале"""
@@ -1513,6 +1630,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "export_google": export_google_command,
         "channel_info": channel_info_command,
         "status": status_command,
+        "diag": diag_command,
         "help": help_command,
     }
 
@@ -2395,6 +2513,7 @@ async def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("channel_info", channel_info_command))
+    application.add_handler(CommandHandler("diag", diag_command))
     application.add_handler(CommandHandler("summary", summary_command))
     application.add_handler(CommandHandler("growth", growth_command))
     application.add_handler(CommandHandler("insights", insights_command))
