@@ -105,6 +105,17 @@ class DatabaseService:
             stmt = select(Channel).where(Channel.channel_id == channel_id)
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
+
+    async def get_channel_by_username(self, username: str) -> Optional[Channel]:
+        """Получение канала по username (без @, регистронезависимо)."""
+        normalized_username = username.lstrip('@').strip().lower()
+        if not normalized_username:
+            return None
+
+        async with self.get_session() as session:
+            stmt = select(Channel).where(func.lower(Channel.username) == normalized_username)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
     
     async def get_active_channels(self) -> List[Channel]:
         """Получение всех активных каналов"""
@@ -269,6 +280,17 @@ class DatabaseService:
             ).order_by(ViewDaily.date)
             views_result = await session.execute(views_stmt)
             views_history = views_result.scalars().all()
+
+            # Все посты в периоде для детальной аналитики
+            period_start_dt = datetime.combine(start_date, datetime.min.time())
+            period_posts_stmt = select(Post).where(
+                and_(
+                    Post.channel_id == channel_id,
+                    Post.posted_at >= period_start_dt
+                )
+            ).order_by(desc(Post.posted_at))
+            period_posts_result = await session.execute(period_posts_stmt)
+            period_posts = period_posts_result.scalars().all()
             
             # Последние посты
             posts_stmt = select(Post).where(
@@ -276,7 +298,172 @@ class DatabaseService:
             ).order_by(desc(Post.posted_at)).limit(10)
             posts_result = await session.execute(posts_stmt)
             recent_posts = posts_result.scalars().all()
-            
+
+            # Периодные агрегаты подписчиков
+            members_total_growth = 0
+            members_growth_percent = 0.0
+            avg_daily_growth = 0.0
+            growth_days = 0
+            decline_days = 0
+            stable_days = 0
+
+            if members_history:
+                first_members = members_history[0].members_count
+                last_members = members_history[-1].members_count
+                members_total_growth = last_members - first_members
+                if first_members > 0:
+                    members_growth_percent = (members_total_growth / first_members) * 100
+
+                members_growth_values = [int(item.members_growth or 0) for item in members_history]
+                if members_growth_values:
+                    avg_daily_growth = sum(members_growth_values) / len(members_growth_values)
+                    growth_days = sum(1 for value in members_growth_values if value > 0)
+                    decline_days = sum(1 for value in members_growth_values if value < 0)
+                    stable_days = len(members_growth_values) - growth_days - decline_days
+
+            # Периодные агрегаты просмотров и вовлеченности
+            total_views_period = sum(int(item.total_views or 0) for item in views_history)
+            total_posts_period = sum(int(item.posts_count or 0) for item in views_history)
+            total_reactions_period = sum(int(item.total_reactions or 0) for item in views_history)
+            total_forwards_period = sum(int(item.total_forwards or 0) for item in views_history)
+
+            avg_views_per_post = (
+                total_views_period / total_posts_period if total_posts_period > 0 else 0.0
+            )
+            avg_reactions_per_post = (
+                total_reactions_period / total_posts_period if total_posts_period > 0 else 0.0
+            )
+            avg_forwards_per_post = (
+                total_forwards_period / total_posts_period if total_posts_period > 0 else 0.0
+            )
+
+            # ER: реакция + репост от просмотров
+            engagement_rate = (
+                ((total_reactions_period + total_forwards_period) / total_views_period) * 100
+                if total_views_period > 0 else 0.0
+            )
+
+            # Контент-микс по постам периода
+            content_breakdown: Dict[str, Dict[str, float]] = {}
+            posts_by_hour: Dict[int, Dict[str, float]] = {}
+            posts_by_weekday: Dict[int, Dict[str, float]] = {}
+            post_engagement_rates: List[float] = []
+            top_posts: List[Dict[str, Any]] = []
+
+            for post in period_posts:
+                media_type = post.media_type or 'text'
+                post_views = int(post.views or 0)
+                post_forwards = int(post.forwards or 0)
+                post_reactions = 0
+                if isinstance(post.reactions, dict):
+                    post_reactions = sum(int(value or 0) for value in post.reactions.values())
+
+                if media_type not in content_breakdown:
+                    content_breakdown[media_type] = {
+                        'posts_count': 0,
+                        'total_views': 0,
+                        'total_reactions': 0,
+                        'avg_views': 0.0,
+                    }
+
+                content_breakdown[media_type]['posts_count'] += 1
+                content_breakdown[media_type]['total_views'] += post_views
+                content_breakdown[media_type]['total_reactions'] += post_reactions
+
+                hour = post.posted_at.hour
+                if hour not in posts_by_hour:
+                    posts_by_hour[hour] = {
+                        'posts_count': 0,
+                        'total_views': 0,
+                    }
+                posts_by_hour[hour]['posts_count'] += 1
+                posts_by_hour[hour]['total_views'] += post_views
+
+                weekday = post.posted_at.weekday()
+                if weekday not in posts_by_weekday:
+                    posts_by_weekday[weekday] = {
+                        'posts_count': 0,
+                        'total_views': 0,
+                    }
+                posts_by_weekday[weekday]['posts_count'] += 1
+                posts_by_weekday[weekday]['total_views'] += post_views
+
+                post_er = ((post_reactions + post_forwards) / post_views * 100) if post_views > 0 else 0.0
+                if post_views > 0:
+                    post_engagement_rates.append(post_er)
+                top_posts.append(
+                    {
+                        'id': post.post_id,
+                        'text': post.text[:120] + '...' if post.text and len(post.text) > 120 else post.text,
+                        'views': post_views,
+                        'forwards': post_forwards,
+                        'reactions_count': post_reactions,
+                        'engagement_rate': post_er,
+                        'media_type': media_type,
+                        'posted_at': post.posted_at.isoformat(),
+                    }
+                )
+
+            for media_stats in content_breakdown.values():
+                posts_count = int(media_stats['posts_count'])
+                media_stats['avg_views'] = (
+                    media_stats['total_views'] / posts_count if posts_count > 0 else 0.0
+                )
+
+            # Топ 5 постов по просмотрам
+            top_posts = sorted(top_posts, key=lambda item: item['views'], reverse=True)[:5]
+
+            best_posting_hour: Optional[int] = None
+            best_posting_hour_avg_views = 0.0
+            if posts_by_hour:
+                best_hour, best_data = max(
+                    posts_by_hour.items(),
+                    key=lambda item: (
+                        item[1]['total_views'] / item[1]['posts_count'] if item[1]['posts_count'] > 0 else 0
+                    ),
+                )
+                best_posting_hour = int(best_hour)
+                best_posting_hour_avg_views = (
+                    best_data['total_views'] / best_data['posts_count']
+                    if best_data['posts_count'] > 0 else 0.0
+                )
+
+            best_posting_weekday: Optional[int] = None
+            best_posting_weekday_avg_views = 0.0
+            if posts_by_weekday:
+                best_wd, best_wd_data = max(
+                    posts_by_weekday.items(),
+                    key=lambda item: (
+                        item[1]['total_views'] / item[1]['posts_count'] if item[1]['posts_count'] > 0 else 0
+                    ),
+                )
+                best_posting_weekday = int(best_wd)
+                best_posting_weekday_avg_views = (
+                    best_wd_data['total_views'] / best_wd_data['posts_count']
+                    if best_wd_data['posts_count'] > 0 else 0.0
+                )
+
+            # Расширенные ER-метрики:
+            #   ER (classic) — (реакции + репосты) / подписчики * 100
+            #   ERR          — (реакции + репосты) / просмотры  * 100  (= engagement_rate)
+            #   VTR          — средний охват поста / подписчики * 100  (Reach Rate)
+            current_subscribers = int(channel.subscribers_count or 0)
+            avg_posts_per_day = total_posts_period / days if days > 0 else 0.0
+
+            er_classic = (
+                ((total_reactions_period + total_forwards_period) / current_subscribers) * 100
+                if current_subscribers > 0 else 0.0
+            )
+            err = engagement_rate
+            vtr = (
+                (avg_views_per_post / current_subscribers) * 100
+                if current_subscribers > 0 and avg_views_per_post > 0 else 0.0
+            )
+            avg_post_er = (
+                sum(post_engagement_rates) / len(post_engagement_rates)
+                if post_engagement_rates else 0.0
+            )
+
             return {
                 'channel': {
                     'id': channel.channel_id,
@@ -284,6 +471,34 @@ class DatabaseService:
                     'title': channel.title,
                     'subscribers': channel.subscribers_count,
                     'posts_count': channel.posts_count
+                },
+                'period': {
+                    'days': days,
+                    'start_date': start_date.isoformat(),
+                    'members_total_growth': members_total_growth,
+                    'members_growth_percent': members_growth_percent,
+                    'avg_daily_growth': avg_daily_growth,
+                    'growth_days': growth_days,
+                    'decline_days': decline_days,
+                    'stable_days': stable_days,
+                    'total_posts': total_posts_period,
+                    'total_views': total_views_period,
+                    'total_reactions': total_reactions_period,
+                    'total_forwards': total_forwards_period,
+                    'avg_views_per_post': avg_views_per_post,
+                    'avg_reactions_per_post': avg_reactions_per_post,
+                    'avg_forwards_per_post': avg_forwards_per_post,
+                    'engagement_rate': engagement_rate,
+                    'er_classic': er_classic,
+                    'err': err,
+                    'vtr': vtr,
+                    'avg_post_er': avg_post_er,
+                    'avg_posts_per_day': avg_posts_per_day,
+                    'current_subscribers': current_subscribers,
+                    'best_posting_hour': best_posting_hour,
+                    'best_posting_hour_avg_views': best_posting_hour_avg_views,
+                    'best_posting_weekday': best_posting_weekday,
+                    'best_posting_weekday_avg_views': best_posting_weekday_avg_views,
                 },
                 'members_history': [
                     {
@@ -308,7 +523,25 @@ class DatabaseService:
                         'forwards': p.forwards,
                         'posted_at': p.posted_at.isoformat()
                     } for p in recent_posts
-                ]
+                ],
+                'top_posts': top_posts,
+                'content_breakdown': content_breakdown,
+                'posts_by_hour': {
+                    int(hour): {
+                        'posts_count': int(stats['posts_count']),
+                        'avg_views': stats['total_views'] / stats['posts_count']
+                        if stats['posts_count'] > 0 else 0.0,
+                    }
+                    for hour, stats in posts_by_hour.items()
+                },
+                'posts_by_weekday': {
+                    int(weekday): {
+                        'posts_count': int(stats['posts_count']),
+                        'avg_views': stats['total_views'] / stats['posts_count']
+                        if stats['posts_count'] > 0 else 0.0,
+                    }
+                    for weekday, stats in posts_by_weekday.items()
+                },
             }
     
     async def close(self):

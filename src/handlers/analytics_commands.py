@@ -8,13 +8,24 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    BufferedInputFile,
+)
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from ..db.database_service import DatabaseService
 from ..config import settings
+from .analytics_charts import (
+    render_channel_dashboard_png,
+    render_growth_overview_png,
+    WEEKDAYS_RU,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +135,29 @@ class AnalyticsCommands:
         async def channels_command(message: Message):
             """Публичный список каналов"""
             await self.show_public_channels_list(message)
+
+        @self.router.message(Command("chart"))
+        async def chart_command(message: Message):
+            """Сводный график-дашборд по каналу."""
+            args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+            if not args:
+                await message.answer(
+                    "📊 <b>График канала</b>\n\n"
+                    "Использование: <code>/chart @channel [дни]</code>\n\n"
+                    "Пример: <code>/chart @durov 30</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+            channel_input = args[0]
+            days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 7
+            days = min(days, 365)
+            await self.send_channel_chart(message, channel_input, days)
+
+        @self.router.message(Command("growth_chart"))
+        async def growth_chart_command(message: Message):
+            """Сравнительный график роста всех каналов."""
+            await self.send_growth_chart(message)
         
         # Callback обработчики
         @self.router.callback_query(F.data.startswith("channel_"))
@@ -263,6 +297,8 @@ class AnalyticsCommands:
                 channel_id = await self.get_channel_id_by_username(username)
             elif channel_input.startswith('-100'):
                 channel_id = int(channel_input)
+            elif channel_input.lstrip('-').isdigit():
+                channel_id = int(channel_input)
             else:
                 await message.answer("❌ Неверный формат канала")
                 return
@@ -281,6 +317,9 @@ class AnalyticsCommands:
             channel_info = analytics['channel']
             members_history = analytics['members_history']
             views_history = analytics['views_history']
+            period = analytics.get('period', {})
+            content_breakdown = analytics.get('content_breakdown', {})
+            top_posts = analytics.get('top_posts', [])
             
             # Формируем отчет
             text = f"📊 <b>Статистика канала за {days} дней</b>\n\n"
@@ -294,33 +333,77 @@ class AnalyticsCommands:
             text += f"📝 <b>Постов:</b> {channel_info['posts_count']:,}\n\n"
             
             # Динамика подписчиков
-            if members_history:
-                first_day = members_history[0]
-                last_day = members_history[-1]
-                growth = last_day['count'] - first_day['count']
-                growth_percent = (growth / first_day['count'] * 100) if first_day['count'] > 0 else 0
-                
+            if period:
                 text += f"📈 <b>Рост подписчиков:</b>\n"
-                text += f"   • За период: {growth:+,} ({growth_percent:+.1f}%)\n"
-                text += f"   • В день: {growth / days:+.1f} в среднем\n\n"
+                text += f"   • За период: {period.get('members_total_growth', 0):+,} ({period.get('members_growth_percent', 0):+.1f}%)\n"
+                text += f"   • В день (среднее): {period.get('avg_daily_growth', 0):+.1f}\n"
+                text += f"   • Дней роста/падения/стабильных: {period.get('growth_days', 0)}/{period.get('decline_days', 0)}/{period.get('stable_days', 0)}\n\n"
             
             # Просмотры
-            if views_history:
-                avg_views = sum(v['avg_views'] for v in views_history) / len(views_history)
-                total_posts = sum(v['posts_count'] for v in views_history)
-                
-                text += f"👁 <b>Просмотры:</b>\n"
-                text += f"   • Среднее за пост: {avg_views:,.0f}\n"
-                text += f"   • Постов за период: {total_posts}\n\n"
+            if period:
+                text += f"👁 <b>Охваты и вовлеченность:</b>\n"
+                text += f"   • Постов за период: {period.get('total_posts', 0):,} (≈ {period.get('avg_posts_per_day', 0):.1f}/день)\n"
+                text += f"   • Суммарные просмотры: {period.get('total_views', 0):,}\n"
+                text += f"   • Средний охват поста: {period.get('avg_views_per_post', 0):,.0f}\n"
+                text += f"   • Средние реакции/репосты: {period.get('avg_reactions_per_post', 0):.1f}/{period.get('avg_forwards_per_post', 0):.1f}\n"
+                text += "\n"
+
+                text += f"🎯 <b>ER-метрики:</b>\n"
+                text += f"   • ER classic (от подписчиков): {period.get('er_classic', 0):.2f}%\n"
+                text += f"   • ERR (от просмотров): {period.get('err', 0):.2f}%\n"
+                text += f"   • VTR/Reach Rate (охват/подписчики): {period.get('vtr', 0):.2f}%\n"
+                text += f"   • Средний ER поста: {period.get('avg_post_er', 0):.2f}%\n\n"
+
+                best_hour = period.get('best_posting_hour')
+                best_wd = period.get('best_posting_weekday')
+                if best_hour is not None or best_wd is not None:
+                    text += "⏰ <b>Лучшее время публикации:</b>\n"
+                    if best_hour is not None:
+                        text += (
+                            f"   • Час: {int(best_hour):02d}:00 "
+                            f"(ср. {period.get('best_posting_hour_avg_views', 0):,.0f} просмотров)\n"
+                        )
+                    if best_wd is not None:
+                        weekday_name = WEEKDAYS_RU[int(best_wd)] if 0 <= int(best_wd) < 7 else str(best_wd)
+                        text += (
+                            f"   • День недели: {weekday_name} "
+                            f"(ср. {period.get('best_posting_weekday_avg_views', 0):,.0f} просмотров)\n"
+                        )
+                    text += "\n"
+
+            if content_breakdown:
+                text += "🧩 <b>Контент-микс:</b>\n"
+                sorted_content = sorted(
+                    content_breakdown.items(),
+                    key=lambda item: item[1].get('posts_count', 0),
+                    reverse=True,
+                )
+                for content_type, stats in sorted_content[:5]:
+                    text += (
+                        f"   • {content_type}: {int(stats.get('posts_count', 0))} постов"
+                        f", ср. {stats.get('avg_views', 0):,.0f} просмотров\n"
+                    )
+                text += "\n"
             
-            # Последние посты
-            recent_posts = analytics['recent_posts'][:3]
-            if recent_posts:
-                text += f"📝 <b>Последние посты:</b>\n"
-                for post in recent_posts:
+            # Топ постов
+            if top_posts:
+                text += "🏆 <b>Топ постов по охвату:</b>\n"
+                for post in top_posts[:3]:
                     post_text = post['text'][:50] + '...' if post['text'] and len(post['text']) > 50 else (post['text'] or 'Без текста')
-                    text += f"   • {post_text}\n"
-                    text += f"     👁 {post['views']:,} | 🔄 {post['forwards']:,}\n"
+                    text += (
+                        f"   • {post_text}\n"
+                        f"     👁 {int(post['views']):,} | 👍 {int(post.get('reactions_count', 0)):,} | "
+                        f"🔄 {int(post['forwards']):,} | ER {post.get('engagement_rate', 0):.2f}%\n"
+                    )
+
+            # Авто-рекомендации
+            recommendations = self._build_recommendations(period, content_breakdown, top_posts)
+            if recommendations:
+                text += "\n💡 <b>Рекомендации:</b>\n"
+                for tip in recommendations:
+                    text += f"   • {tip}\n"
+
+            text += f"\n🕐 <i>Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}</i>"
             
             # Inline кнопки для дополнительных действий
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -341,45 +424,172 @@ class AnalyticsCommands:
             await message.answer(f"❌ Ошибка получения статистики: {str(e)}")
     
     async def show_summary(self, message: Message):
-        """Показать общую сводку по всем каналам"""
+        """Показать общую сводку по всем каналам с ER-метриками."""
         try:
             channels = await self.db.get_active_channels()
-            
+
             if not channels:
                 await message.answer("📊 Нет каналов в мониторинге")
                 return
-            
-            text = f"📊 <b>Сводка по {len(channels)} каналам</b>\n\n"
-            
-            total_subscribers = sum(ch.subscribers_count for ch in channels)
-            total_posts = sum(ch.posts_count for ch in channels)
-            
-            text += f"👥 <b>Общие показатели:</b>\n"
-            text += f"   • Подписчики: {total_subscribers:,}\n"
-            text += f"   • Посты: {total_posts:,}\n"
-            text += f"   • Среднее на канал: {total_subscribers // len(channels):,}\n\n"
-            
-            # Топ каналов по подписчикам
-            top_channels = sorted(channels, key=lambda x: x.subscribers_count, reverse=True)[:5]
-            text += f"🏆 <b>Топ каналов по подписчикам:</b>\n"
-            for i, ch in enumerate(top_channels, 1):
-                username_display = f"@{ch.username}" if ch.username else ch.title[:20]
-                text += f"   {i}. {username_display} - {ch.subscribers_count:,}\n"
-            
-            await message.answer(text, parse_mode="HTML")
-            
+
+            rows: List[Dict[str, Any]] = []
+            for channel in channels:
+                analytics = await self.db.get_channel_analytics(channel.channel_id, 7)
+                period = (analytics or {}).get("period", {}) if analytics else {}
+                rows.append(
+                    {
+                        "channel": channel,
+                        "title": channel.title or (
+                            f"@{channel.username}" if channel.username else str(channel.channel_id)
+                        ),
+                        "username": channel.username,
+                        "subscribers": int(channel.subscribers_count or 0),
+                        "growth": int(period.get("members_total_growth", 0) or 0),
+                        "growth_percent": float(period.get("members_growth_percent", 0.0) or 0.0),
+                        "engagement_rate": float(period.get("engagement_rate", 0.0) or 0.0),
+                        "er_classic": float(period.get("er_classic", 0.0) or 0.0),
+                        "vtr": float(period.get("vtr", 0.0) or 0.0),
+                        "avg_views_per_post": float(period.get("avg_views_per_post", 0.0) or 0.0),
+                        "total_posts": int(period.get("total_posts", 0) or 0),
+                    }
+                )
+
+            total_channels = len(rows)
+            total_subscribers = sum(item["subscribers"] for item in rows)
+            total_growth = sum(item["growth"] for item in rows)
+            total_posts = sum(item["total_posts"] for item in rows)
+
+            channels_with_er = [item for item in rows if item["engagement_rate"] > 0]
+            avg_err = (
+                sum(item["engagement_rate"] for item in channels_with_er) / len(channels_with_er)
+                if channels_with_er else 0.0
+            )
+            channels_with_vtr = [item for item in rows if item["vtr"] > 0]
+            avg_vtr = (
+                sum(item["vtr"] for item in channels_with_vtr) / len(channels_with_vtr)
+                if channels_with_vtr else 0.0
+            )
+            avg_views = (
+                sum(item["avg_views_per_post"] for item in rows if item["avg_views_per_post"] > 0)
+                / max(1, sum(1 for item in rows if item["avg_views_per_post"] > 0))
+            )
+
+            text = f"📊 <b>Сводка по {total_channels} каналам · 7 дней</b>\n\n"
+            text += "👥 <b>Аудитория:</b>\n"
+            text += f"   • Всего подписчиков: {total_subscribers:,}\n"
+            text += f"   • Средне на канал: {total_subscribers // max(1, total_channels):,}\n"
+            text += f"   • Прирост за 7 дн.: {total_growth:+,}\n\n"
+
+            text += "📝 <b>Активность:</b>\n"
+            text += f"   • Постов за период: {total_posts:,}\n"
+            text += f"   • Средний охват поста: {avg_views:,.0f}\n\n"
+
+            text += "🎯 <b>Вовлеченность (среднее по каналам):</b>\n"
+            text += f"   • ERR: {avg_err:.2f}%\n"
+            text += f"   • VTR / Reach Rate: {avg_vtr:.2f}%\n\n"
+
+            top_subscribers = sorted(rows, key=lambda item: item["subscribers"], reverse=True)[:5]
+            text += "🏆 <b>Топ по подписчикам:</b>\n"
+            for index, item in enumerate(top_subscribers, 1):
+                name = f"@{item['username']}" if item["username"] else item["title"][:24]
+                text += f"   {index}. {name} — {item['subscribers']:,}\n"
+
+            top_er = sorted(rows, key=lambda item: item["engagement_rate"], reverse=True)[:3]
+            if any(item["engagement_rate"] > 0 for item in top_er):
+                text += "\n💎 <b>Топ по ERR:</b>\n"
+                for item in top_er:
+                    if item["engagement_rate"] <= 0:
+                        continue
+                    name = f"@{item['username']}" if item["username"] else item["title"][:24]
+                    text += f"   • {name} — {item['engagement_rate']:.2f}%\n"
+
+            top_growth = sorted(rows, key=lambda item: item["growth"], reverse=True)[:3]
+            text += "\n🚀 <b>Лидеры роста:</b>\n"
+            for item in top_growth:
+                name = f"@{item['username']}" if item["username"] else item["title"][:24]
+                text += f"   • {name}: {item['growth']:+,} ({item['growth_percent']:+.2f}%)\n"
+
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="📈 Графики роста", callback_data="growth_chart"),
+                        InlineKeyboardButton(text="📊 Сводка-картинка", callback_data="summary_chart"),
+                    ]
+                ]
+            )
+
+            await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
         except Exception as e:
             logger.error(f"Ошибка получения сводки: {e}")
             await message.answer(f"❌ Ошибка получения сводки: {str(e)}")
+
+    async def send_summary_chart(self, message: Message) -> None:
+        """Отправка сводного графика по всем каналам (тот же growth overview)."""
+        await self.send_growth_chart(message)
     
     async def show_growth_stats(self, message: Message):
         """Показать статистику роста"""
-        await message.answer(
-            "📈 <b>Статистика роста</b>\n\n"
-            "🚧 Функция в разработке\n"
-            "Скоро будет доступен подробный анализ роста всех каналов",
-            parse_mode="HTML"
-        )
+        try:
+            channels = await self.db.get_active_channels()
+            if not channels:
+                await message.answer("📈 Нет каналов в мониторинге", parse_mode="HTML")
+                return
+
+            analytics_rows = []
+            for channel in channels:
+                analytics = await self.db.get_channel_analytics(channel.channel_id, 7)
+                if not analytics:
+                    continue
+
+                period = analytics.get('period', {})
+                analytics_rows.append(
+                    {
+                        'title': channel.title or (f"@{channel.username}" if channel.username else str(channel.channel_id)),
+                        'username': channel.username,
+                        'growth': int(period.get('members_total_growth', 0)),
+                        'growth_percent': float(period.get('members_growth_percent', 0.0)),
+                        'engagement_rate': float(period.get('engagement_rate', 0.0)),
+                        'avg_views_per_post': float(period.get('avg_views_per_post', 0.0)),
+                    }
+                )
+
+            if not analytics_rows:
+                await message.answer("📈 Недостаточно данных для анализа роста за 7 дней", parse_mode="HTML")
+                return
+
+            total_growth = sum(item['growth'] for item in analytics_rows)
+            avg_growth_percent = sum(item['growth_percent'] for item in analytics_rows) / len(analytics_rows)
+            avg_er = sum(item['engagement_rate'] for item in analytics_rows) / len(analytics_rows)
+
+            top_growth = sorted(analytics_rows, key=lambda item: item['growth'], reverse=True)[:3]
+            top_decline = sorted(analytics_rows, key=lambda item: item['growth'])[:3]
+
+            text = "📈 <b>Рост каналов за 7 дней</b>\n\n"
+            text += "🧮 <b>Общая динамика:</b>\n"
+            text += f"   • Суммарный рост: {total_growth:+,}\n"
+            text += f"   • Средний рост, %: {avg_growth_percent:+.2f}%\n"
+            text += f"   • Средний ER: {avg_er:.2f}%\n\n"
+
+            text += "🚀 <b>Лидеры роста:</b>\n"
+            for row in top_growth:
+                name = f"@{row['username']}" if row['username'] else row['title']
+                text += f"   • {name}: {row['growth']:+,} ({row['growth_percent']:+.2f}%)\n"
+
+            text += "\n⚠️ <b>Зоны риска:</b>\n"
+            for row in top_decline:
+                name = f"@{row['username']}" if row['username'] else row['title']
+                text += f"   • {name}: {row['growth']:+,} ({row['growth_percent']:+.2f}%)\n"
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📈 График роста", callback_data="growth_chart")],
+            ])
+
+            await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+        except Exception as e:
+            logger.error(f"Ошибка статистики роста: {e}")
+            await message.answer(f"❌ Ошибка статистики роста: {str(e)}", parse_mode="HTML")
     
     async def show_public_channels_list(self, message: Message):
         """Публичный список каналов (для всех пользователей)"""
@@ -412,43 +622,200 @@ class AnalyticsCommands:
         """Обработка callback запросов"""
         try:
             data = callback.data
-            
+
             if data == "summary_all":
                 await self.show_summary(callback.message)
+            elif data == "summary_chart":
+                await self.send_summary_chart(callback.message)
             elif data == "growth_all":
                 await self.show_growth_stats(callback.message)
+            elif data == "growth_chart":
+                await self.send_growth_chart(callback.message)
             elif data == "refresh_list":
                 await self.show_channels_list(callback.message)
             elif data.startswith("stats_"):
                 parts = data.split("_")
                 channel_id = int(parts[1])
                 days = int(parts[2])
-                # Здесь нужно получить username по channel_id
                 await self.show_channel_stats(callback.message, str(channel_id), days)
-            
+            elif data.startswith("chart_"):
+                parts = data.split("_")
+                channel_id = int(parts[1])
+                days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 7
+                await self.send_channel_chart(callback.message, str(channel_id), days)
+
             await callback.answer()
-            
+
         except Exception as e:
             logger.error(f"Ошибка обработки callback: {e}")
             await callback.answer("❌ Ошибка обработки запроса")
     
     # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
-    
+
+    def _build_recommendations(
+        self,
+        period: Dict[str, Any],
+        content_breakdown: Dict[str, Any],
+        top_posts: List[Dict[str, Any]],
+    ) -> List[str]:
+        """Формирование контекстных рекомендаций по порогам."""
+        tips: List[str] = []
+        if not period:
+            return tips
+
+        er_classic = float(period.get("er_classic") or 0.0)
+        err = float(period.get("err") or 0.0)
+        vtr = float(period.get("vtr") or 0.0)
+        growth_percent = float(period.get("members_growth_percent") or 0.0)
+        avg_posts_per_day = float(period.get("avg_posts_per_day") or 0.0)
+        total_posts = int(period.get("total_posts") or 0)
+
+        if er_classic and er_classic < 1.0:
+            tips.append("ER classic ниже 1% — пересмотреть форматы и СTA постов")
+        elif er_classic and er_classic > 5.0:
+            tips.append("Высокий ER classic — сохранить рубрики и регулярность")
+
+        if vtr and vtr < 20.0:
+            tips.append("Reach Rate < 20% — проверить уведомления и время выхода постов")
+
+        if err and err < 1.5:
+            tips.append("ERR ниже 1.5% — добавить опросы, реакции, обсуждения")
+
+        if growth_percent < 0:
+            tips.append("Подписчики уменьшаются — запустить контент-эксперимент или промо")
+        elif 0 <= growth_percent < 1:
+            tips.append("Рост подписчиков замедлен — усилить вирусные форматы и взаимные пиары")
+
+        if total_posts == 0:
+            tips.append("Нет постов в периоде — восстановить регулярный график публикаций")
+        elif avg_posts_per_day < 0.5:
+            tips.append("Меньше 1 поста за 2 дня — повысить частоту публикаций")
+        elif avg_posts_per_day > 5:
+            tips.append("Слишком много постов — риск выгорания аудитории, проверить дочитывания")
+
+        if content_breakdown:
+            best_type = max(
+                content_breakdown.items(),
+                key=lambda item: item[1].get("avg_views", 0),
+            )
+            type_name, type_stats = best_type
+            if type_stats.get("avg_views", 0) > 0:
+                tips.append(
+                    f"Лучший тип контента — {type_name} "
+                    f"(ср. {type_stats['avg_views']:,.0f} просмотров)"
+                )
+
+        if top_posts:
+            top = top_posts[0]
+            if top.get("engagement_rate", 0) > err and top.get("views", 0) > 0:
+                tips.append("Повторить формат лидера по охвату — он опережает средний ER")
+
+        return tips[:6]
+
+    async def send_channel_chart(
+        self,
+        message: Message,
+        channel_input: str,
+        days: int = 7,
+    ) -> None:
+        """Отправка графика-дашборда канала картинкой."""
+        try:
+            channel_id = await self._resolve_channel_id(channel_input)
+            if not channel_id:
+                await message.answer("❌ Канал не найден")
+                return
+
+            analytics = await self.db.get_channel_analytics(channel_id, days)
+            if not analytics:
+                await message.answer("❌ Нет данных по этому каналу")
+                return
+
+            buffer = await asyncio.to_thread(render_channel_dashboard_png, analytics)
+            if buffer is None:
+                await message.answer("⚠️ Недостаточно данных для графика")
+                return
+
+            channel_info = analytics.get("channel", {})
+            caption = (
+                f"📊 Дашборд «{channel_info.get('title') or channel_id}» за {days} дн."
+            )
+            file = BufferedInputFile(buffer.getvalue(), filename=f"channel_{channel_id}_{days}d.png")
+            await message.answer_photo(photo=file, caption=caption)
+
+        except Exception as e:
+            logger.error(f"Ошибка построения графика: {e}")
+            await message.answer(f"❌ Ошибка построения графика: {str(e)}")
+
+    async def send_growth_chart(self, message: Message) -> None:
+        """Отправка сравнительного графика роста по всем каналам."""
+        try:
+            channels = await self.db.get_active_channels()
+            if not channels:
+                await message.answer("📋 Нет каналов в мониторинге")
+                return
+
+            rows: List[Dict[str, Any]] = []
+            for channel in channels:
+                analytics = await self.db.get_channel_analytics(channel.channel_id, 7)
+                if not analytics:
+                    continue
+                period = analytics.get("period", {})
+                rows.append(
+                    {
+                        "title": channel.title or str(channel.channel_id),
+                        "username": channel.username,
+                        "growth": int(period.get("members_total_growth", 0) or 0),
+                        "growth_percent": float(period.get("members_growth_percent", 0.0) or 0.0),
+                        "engagement_rate": float(period.get("engagement_rate", 0.0) or 0.0),
+                    }
+                )
+
+            if not rows:
+                await message.answer("⚠️ Недостаточно данных для сравнительного графика")
+                return
+
+            buffer = await asyncio.to_thread(render_growth_overview_png, rows)
+            if buffer is None:
+                await message.answer("⚠️ Не удалось построить график")
+                return
+
+            file = BufferedInputFile(buffer.getvalue(), filename="growth_overview_7d.png")
+            await message.answer_photo(photo=file, caption="📈 Рост и вовлеченность каналов за 7 дн.")
+
+        except Exception as e:
+            logger.error(f"Ошибка построения графика роста: {e}")
+            await message.answer(f"❌ Ошибка графика роста: {str(e)}")
+
+    async def _resolve_channel_id(self, channel_input: str) -> Optional[int]:
+        """Разбор username/id канала в channel_id."""
+        if channel_input.startswith("@"):
+            return await self.get_channel_id_by_username(channel_input[1:])
+        if channel_input.lstrip("-").isdigit():
+            return int(channel_input)
+        return await self.get_channel_id_by_username(channel_input)
+
     async def get_channel_id_by_username(self, username: str) -> Optional[int]:
-        """Получение ID канала по username (заглушка)"""
-        # TODO: Реализовать через Telethon API
-        return None
+        """Получение ID канала по username из БД."""
+        channel = await self.db.get_channel_by_username(username)
+        return channel.channel_id if channel else None
     
     async def get_username_by_channel_id(self, channel_id: int) -> Optional[str]:
-        """Получение username по ID канала (заглушка)"""
-        # TODO: Реализовать через Telethon API
-        return None
+        """Получение username по ID канала из БД."""
+        channel = await self.db.get_channel(channel_id)
+        return channel.username if channel else None
     
     async def get_channel_info(self, channel_id: int) -> Dict[str, Any]:
-        """Получение информации о канале (заглушка)"""
-        # TODO: Реализовать через Telethon API
+        """Получение информации о канале из БД."""
+        channel = await self.db.get_channel(channel_id)
+        if not channel:
+            return {
+                'title': f'Канал {channel_id}',
+                'description': 'Описание недоступно',
+                'members_count': 0
+            }
+
         return {
-            'title': f'Канал {channel_id}',
-            'description': 'Описание недоступно',
-            'members_count': 0
+            'title': channel.title or f'Канал {channel_id}',
+            'description': channel.description or 'Описание недоступно',
+            'members_count': channel.subscribers_count
         }
